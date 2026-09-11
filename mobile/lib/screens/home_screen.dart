@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../models/profile.dart';
 import '../services/auth_service.dart';
+import '../services/case_service.dart';
+import 'case_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({required this.authService, super.key});
+  HomeScreen({required this.authService, CaseService? caseService, super.key})
+      : caseService = caseService ?? SupabaseCaseService();
 
   final AuthService authService;
+  final CaseService caseService;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -47,6 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
         return _HomeContent(
           profile: profile,
           onSignOut: _signOut,
+          caseService: widget.caseService,
         );
       },
     );
@@ -54,20 +59,27 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class _HomeContent extends StatelessWidget {
-  const _HomeContent({required this.profile, required this.onSignOut});
+  const _HomeContent({
+    required this.profile,
+    required this.onSignOut,
+    required this.caseService,
+  });
 
   final Profile profile;
   final VoidCallback onSignOut;
+  final CaseService caseService;
+
+  void _openCases(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CaseListScreen(caseService: caseService),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final features = const [
-      ('Cases', Icons.folder_outlined),
-      ('Start Test', Icons.play_circle_outline),
-      ('Evidence History', Icons.history),
-    ];
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('NIRVA'),
@@ -102,15 +114,26 @@ class _HomeContent extends StatelessWidget {
                   label: Text(profile.role.value),
                 ),
                 const SizedBox(height: 28),
-                ...features.map(
-                  (feature) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: OutlinedButton.icon(
-                      onPressed: null,
-                      icon: Icon(feature.$2),
-                      label: Text('${feature.$1} - Coming in next phase'),
-                    ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: OutlinedButton.icon(
+                    onPressed: () => _openCases(context),
+                    icon: const Icon(Icons.folder_outlined),
+                    label: const Text('Cases'),
                   ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: OutlinedButton.icon(
+                    onPressed: null,
+                    icon: const Icon(Icons.play_circle_outline),
+                    label: const Text('Start Test - Coming in next phase'),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: null,
+                  icon: const Icon(Icons.history),
+                  label: const Text('Evidence History - Coming in next phase'),
                 ),
                 const SizedBox(height: 20),
                 Text(
