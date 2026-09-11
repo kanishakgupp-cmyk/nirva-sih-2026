@@ -1,5 +1,6 @@
+import 'dart:typed_data';
+
 import 'package:camera/camera.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/case_model.dart';
@@ -48,6 +49,7 @@ class _EvidenceCaptureScreenState extends State<EvidenceCaptureScreen> {
   DateTime? _capturedAt;
   String? _cameraMessage;
   String? _errorMessage;
+  bool _cameraInitializationFailed = false;
   bool _isSaving = false;
 
   @override
@@ -59,24 +61,42 @@ class _EvidenceCaptureScreenState extends State<EvidenceCaptureScreen> {
   }
 
   Future<void> _initializeCamera() async {
+    if (mounted) {
+      setState(() {
+        _cameraMessage = 'Checking cameras...';
+        _cameraInitializationFailed = false;
+      });
+    }
     try {
-      await _cameraService.initialize();
-      if (mounted) {
-        setState(() => _cameraController = _cameraService.controller);
-      }
-    } on CameraServiceException catch (error) {
+      await _cameraService.initialize(
+        onStage: (stage) {
+          if (mounted) {
+            setState(() => _cameraMessage = stage);
+          }
+        },
+      );
       if (mounted) {
         setState(() {
-          _cameraMessage = kIsWeb
-              ? 'Camera unavailable in this browser: ${error.message}'
-              : error.message;
+          _cameraController = _cameraService.controller;
+          _cameraMessage = 'Camera initialized';
         });
       }
-    } catch (error) {
+    } on CameraServiceException catch (error) {
+      debugPrint('NIRVA camera initialization: ${error.message}');
+      if (mounted) {
+        setState(() {
+          _cameraMessage = error.message;
+          _cameraInitializationFailed = true;
+        });
+      }
+    } catch (error, stackTrace) {
+      debugPrint('NIRVA camera initialization: $error');
+      debugPrintStack(stackTrace: stackTrace);
       if (mounted) {
         setState(() {
           _cameraMessage =
               'Camera initialization failed (${error.runtimeType}): $error';
+          _cameraInitializationFailed = true;
         });
       }
     }
@@ -217,6 +237,7 @@ class _EvidenceCaptureScreenState extends State<EvidenceCaptureScreen> {
                   _CameraPanel(
                     controller: _cameraController,
                     cameraMessage: _cameraMessage,
+                    initializationFailed: _cameraInitializationFailed,
                     onCapture: _captureEvidence,
                     onUseDemoImage: _useDemoImage,
                   )
@@ -332,12 +353,14 @@ class _CameraPanel extends StatelessWidget {
   const _CameraPanel({
     required this.controller,
     required this.cameraMessage,
+    required this.initializationFailed,
     required this.onCapture,
     required this.onUseDemoImage,
   });
 
   final CameraController? controller;
   final String? cameraMessage;
+  final bool initializationFailed;
   final VoidCallback onCapture;
   final VoidCallback onUseDemoImage;
 
@@ -365,7 +388,7 @@ class _CameraPanel extends StatelessWidget {
             icon: const Icon(Icons.camera_alt_outlined),
             label: const Text('Capture Evidence'),
           ),
-        if (!cameraReady) ...[
+        if (!cameraReady && initializationFailed) ...[
           const Text('DEMO ONLY'),
           const SizedBox(height: 8),
           OutlinedButton(

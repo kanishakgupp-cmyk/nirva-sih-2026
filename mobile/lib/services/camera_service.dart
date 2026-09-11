@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 
 class CameraService {
   CameraController? _controller;
@@ -16,10 +15,11 @@ class CameraService {
     );
   }
 
-  Future<void> initialize() async {
+  Future<void> initialize({void Function(String stage)? onStage}) async {
     await dispose();
 
     try {
+      onStage?.call('Checking cameras...');
       final cameras = await availableCameras().timeout(
         const Duration(seconds: 15),
         onTimeout: () => throw const CameraServiceException(
@@ -30,12 +30,23 @@ class CameraService {
         throw const CameraServiceException('No camera is available.');
       }
 
+      final cameraSummary = cameras
+          .map((camera) => '${camera.name} (${camera.lensDirection.name})')
+          .join(', ');
+      onStage?.call('Camera found: $cameraSummary');
+
+      final selectedCamera = selectPreferredCamera(cameras);
+      onStage?.call(
+        'Creating camera controller for ${selectedCamera.name} '
+        '(${selectedCamera.lensDirection.name})...',
+      );
       final controller = CameraController(
-        selectPreferredCamera(cameras),
+        selectedCamera,
         ResolutionPreset.medium,
         enableAudio: false,
       );
       try {
+        onStage?.call('Initializing camera...');
         await controller.initialize().timeout(
               const Duration(seconds: 15),
               onTimeout: () => throw const CameraServiceException(
@@ -43,6 +54,7 @@ class CameraService {
               ),
             );
         _controller = controller;
+        onStage?.call('Camera initialized');
       } catch (_) {
         await controller.dispose();
         rethrow;
@@ -50,15 +62,29 @@ class CameraService {
     } on CameraException catch (error) {
       throw CameraServiceException(
         'Camera initialization failed (${error.code}): '
-        '${error.description ?? 'No further details were provided.'}',
+        '${error.description ?? 'No further details were provided.'}'
+        '${_webContextSuffix()}',
       );
     } on CameraServiceException {
       rethrow;
     } catch (error) {
       throw CameraServiceException(
-        'Camera initialization failed (${error.runtimeType}): $error',
+        'Camera initialization failed (${error.runtimeType}): $error'
+        '${_webContextSuffix()}',
       );
     }
+  }
+
+  String _webContextSuffix() {
+    if (!kIsWeb) {
+      return '';
+    }
+    final uri = Uri.base;
+    final secureContext = uri.scheme == 'https' ||
+        uri.host == 'localhost' ||
+        uri.host == '127.0.0.1';
+    return ' [Web URL: ${uri.scheme}://${uri.host}; '
+        'secure-context-compatible: $secureContext]';
   }
 
   Future<Uint8List> captureBytes() async {

@@ -149,7 +149,7 @@ class FakeKitService implements KitService {
 
 class UnavailableCameraService extends CameraService {
   @override
-  Future<void> initialize() async {
+  Future<void> initialize({void Function(String stage)? onStage}) async {
     throw const CameraServiceException('No camera is available.');
   }
 }
