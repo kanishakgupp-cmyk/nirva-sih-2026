@@ -6,10 +6,12 @@ import 'package:nirva/models/profile.dart';
 import 'package:nirva/models/case_model.dart';
 import 'package:nirva/models/kit.dart';
 import 'package:nirva/models/test_session.dart';
+import 'package:nirva/models/workflow_step.dart';
 import 'package:nirva/screens/case_details_screen.dart';
 import 'package:nirva/screens/case_list_screen.dart';
 import 'package:nirva/screens/create_case_screen.dart';
 import 'package:nirva/screens/home_screen.dart';
+import 'package:nirva/screens/guided_workflow_screen.dart';
 import 'package:nirva/screens/kit_verification_screen.dart';
 import 'package:nirva/screens/login_screen.dart';
 import 'package:nirva/screens/start_test_screen.dart';
@@ -18,6 +20,8 @@ import 'package:nirva/services/auth_service.dart';
 import 'package:nirva/services/case_service.dart';
 import 'package:nirva/services/kit_service.dart';
 import 'package:nirva/services/test_session_service.dart';
+import 'package:nirva/services/workflow_service.dart';
+import 'package:nirva/widgets/workflow_timer.dart';
 
 class FakeAuthService implements AuthService {
   @override
@@ -100,6 +104,9 @@ class FakeTestSessionService implements TestSessionService {
     required String status,
   }) async {}
 
+  @override
+  Future<void> markWorkflowComplete({required String testId}) async {}
+
   static final _session = TestSession(
     id: 'test-session-1',
     testNumber: 'NIRVA-TEST-ABC123',
@@ -126,6 +133,50 @@ class FakeKitService implements KitService {
 
   @override
   Future<Kit?> findKitByCode(String kitCode) async => kit;
+}
+
+class FastWorkflowService extends WorkflowService {
+  const FastWorkflowService();
+
+  @override
+  List<WorkflowStep> getDemoWorkflow() {
+    return const [
+      WorkflowStep(
+        id: 'fast_step_1',
+        title: 'Fast Demo Step 1',
+        description: 'Complete the fast demonstration step.',
+        durationSeconds: 0,
+        requiresTimer: false,
+        isRequired: true,
+      ),
+      WorkflowStep(
+        id: 'fast_step_2',
+        title: 'Fast Demo Step 2',
+        description: 'Complete the final fast demonstration step.',
+        durationSeconds: 0,
+        requiresTimer: false,
+        isRequired: true,
+      ),
+    ];
+  }
+}
+
+class TimedWorkflowService extends WorkflowService {
+  const TimedWorkflowService();
+
+  @override
+  List<WorkflowStep> getDemoWorkflow() {
+    return const [
+      WorkflowStep(
+        id: 'timed_step',
+        title: 'Timed Demo Step',
+        description: 'Complete the configured timed demonstration step.',
+        durationSeconds: 20,
+        requiresTimer: true,
+        isRequired: true,
+      ),
+    ];
+  }
 }
 
 void main() {
@@ -224,6 +275,31 @@ void main() {
     expect(nonceA, isNotEmpty);
     expect(nonceB, isNotEmpty);
     expect(nonceA, isNot(nonceB));
+  });
+
+  test('WorkflowStep parses demo configuration', () {
+    final step = WorkflowStep.fromMap({
+      'id': 'demo_step_2',
+      'title': 'Observation Window',
+      'description': 'Wait for the configured observation window.',
+      'duration_seconds': 20,
+      'requires_timer': true,
+      'is_required': true,
+    });
+
+    expect(step.id, 'demo_step_2');
+    expect(step.durationSeconds, 20);
+    expect(step.requiresTimer, isTrue);
+    expect(step.isRequired, isTrue);
+  });
+
+  test('demo workflow contains three configured steps', () {
+    final workflow = const WorkflowService().getDemoWorkflow();
+
+    expect(workflow, hasLength(3));
+    expect(workflow.first.id, 'demo_step_1');
+    expect(workflow.first.requiresTimer, isFalse);
+    expect(workflow[1].requiresTimer, isTrue);
   });
 
   testWidgets('login screen renders', (tester) async {
@@ -405,15 +481,103 @@ void main() {
           session: FakeTestSessionService._session,
           caseItem: sampleCase,
           kit: kit,
+          testSessionService: FakeTestSessionService(),
         ),
       ),
     );
 
-    expect(find.text('Test Session'), findsNWidgets(2));
-    expect(find.text('NIRVA-TEST-ABC123'), findsOneWidget);
-    expect(find.text('CASE-001'), findsOneWidget);
-    expect(find.text('NIRVA-DEMO-001'), findsOneWidget);
-    expect(find.text('RUNNING'), findsOneWidget);
+    expect(find.text('Guided Test Workflow'), findsOneWidget);
+    expect(find.textContaining('NIRVA-TEST-ABC123'), findsOneWidget);
+    expect(find.textContaining('CASE-001'), findsOneWidget);
+    expect(find.textContaining('NIRVA-DEMO-001'), findsOneWidget);
+    expect(find.textContaining('RUNNING'), findsOneWidget);
+  });
+
+  testWidgets('workflow timer counts down and never goes below zero',
+      (tester) async {
+    var completed = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: WorkflowTimer(
+          duration: Duration.zero,
+          onCompleted: () => completed = true,
+        ),
+      ),
+    );
+
+    expect(find.text('00:00'), findsOneWidget);
+    await tester.tap(find.text('Start Timer'));
+    await tester.pump();
+
+    expect(completed, isTrue);
+    expect(find.text('Step complete'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('Step complete'), findsOneWidget);
+  });
+
+  testWidgets('guided workflow advances and completes with fast demo steps',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: GuidedWorkflowScreen(
+          session: FakeTestSessionService._session,
+          caseItem: sampleCase,
+          kit: Kit(
+            id: 'kit-1',
+            kitCode: 'NIRVA-DEMO-001',
+            batchNumber: 'DEMO-BATCH-001',
+            expiryDate: DateTime(2030, 12, 31),
+            status: 'ACTIVE',
+            createdAt: DateTime(2026, 9, 11),
+          ),
+          testSessionService: FakeTestSessionService(),
+          workflowService: const FastWorkflowService(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Step 1 of 2'), findsOneWidget);
+    expect(find.text('Fast Demo Step 1'), findsOneWidget);
+    await tester.tap(find.text('Complete Step'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Step 2 of 2'), findsOneWidget);
+    expect(find.text('Fast Demo Step 2'), findsOneWidget);
+    await tester.tap(find.text('Complete Step'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('WORKFLOW COMPLETE'), findsOneWidget);
+    expect(find.textContaining('NIRVA-TEST-ABC123'), findsOneWidget);
+    expect(find.textContaining('READY FOR EVIDENCE CAPTURE'), findsOneWidget);
+  });
+
+  testWidgets('required timed step cannot be completed before timer',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: GuidedWorkflowScreen(
+          session: FakeTestSessionService._session,
+          caseItem: sampleCase,
+          kit: Kit(
+            id: 'kit-1',
+            kitCode: 'NIRVA-DEMO-001',
+            batchNumber: 'DEMO-BATCH-001',
+            expiryDate: DateTime(2030, 12, 31),
+            status: 'ACTIVE',
+            createdAt: DateTime(2026, 9, 11),
+          ),
+          testSessionService: FakeTestSessionService(),
+          workflowService: const TimedWorkflowService(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final completeButton = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Complete Step (timer required)'),
+    );
+    expect(completeButton.onPressed, isNull);
   });
 
   testWidgets('sign out action can be invoked without credentials',

@@ -6,7 +6,7 @@ import '../models/kit.dart';
 import '../models/test_session.dart';
 import '../services/kit_service.dart';
 import '../services/test_session_service.dart';
-import 'test_session_screen.dart';
+import 'guided_workflow_screen.dart';
 
 class KitVerificationScreen extends StatefulWidget {
   const KitVerificationScreen({
@@ -170,7 +170,7 @@ class _KitVerificationScreenState extends State<KitVerificationScreen> {
       if (mounted) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (_) => TestSessionScreen(
+            builder: (_) => GuidedWorkflowScreen(
               session: widget.session,
               caseItem: widget.caseItem,
               kit: kit,

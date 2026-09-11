@@ -19,6 +19,8 @@ abstract interface class TestSessionService {
     required String testId,
     required String status,
   });
+
+  Future<void> markWorkflowComplete({required String testId});
 }
 
 class SupabaseTestSessionService implements TestSessionService {
@@ -107,6 +109,11 @@ class SupabaseTestSessionService implements TestSessionService {
       throw const TestSessionServiceException('Invalid test session status.');
     }
     await _updateOwnedSession(testId, {'status': status});
+  }
+
+  @override
+  Future<void> markWorkflowComplete({required String testId}) {
+    return updateTestStatus(testId: testId, status: 'CAPTURED');
   }
 
   Future<void> _updateOwnedSession(
