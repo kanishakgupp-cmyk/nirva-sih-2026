@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/case_model.dart';
@@ -65,10 +64,19 @@ class _EvidenceCaptureScreenState extends State<EvidenceCaptureScreen> {
       if (mounted) {
         setState(() => _cameraController = _cameraService.controller);
       }
-    } catch (_) {
+    } on CameraServiceException catch (error) {
       if (mounted) {
         setState(() {
-          _cameraMessage = 'Camera unavailable in this browser';
+          _cameraMessage = kIsWeb
+              ? 'Camera unavailable in this browser: ${error.message}'
+              : error.message;
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _cameraMessage =
+              'Camera initialization failed (${error.runtimeType}): $error';
         });
       }
     }

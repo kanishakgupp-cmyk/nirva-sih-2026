@@ -17,18 +17,48 @@ class CameraService {
   }
 
   Future<void> initialize() async {
-    final cameras = await availableCameras();
-    if (cameras.isEmpty) {
-      throw const CameraServiceException('No camera is available.');
-    }
+    await dispose();
 
-    final controller = CameraController(
-      selectPreferredCamera(cameras),
-      ResolutionPreset.medium,
-      enableAudio: false,
-    );
-    await controller.initialize();
-    _controller = controller;
+    try {
+      final cameras = await availableCameras().timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw const CameraServiceException(
+          'Camera discovery timed out. Check camera permission and try again.',
+        ),
+      );
+      if (cameras.isEmpty) {
+        throw const CameraServiceException('No camera is available.');
+      }
+
+      final controller = CameraController(
+        selectPreferredCamera(cameras),
+        ResolutionPreset.medium,
+        enableAudio: false,
+      );
+      try {
+        await controller.initialize().timeout(
+              const Duration(seconds: 15),
+              onTimeout: () => throw const CameraServiceException(
+                'Camera initialization timed out. Check camera permission and try again.',
+              ),
+            );
+        _controller = controller;
+      } catch (_) {
+        await controller.dispose();
+        rethrow;
+      }
+    } on CameraException catch (error) {
+      throw CameraServiceException(
+        'Camera initialization failed (${error.code}): '
+        '${error.description ?? 'No further details were provided.'}',
+      );
+    } on CameraServiceException {
+      rethrow;
+    } catch (error) {
+      throw CameraServiceException(
+        'Camera initialization failed (${error.runtimeType}): $error',
+      );
+    }
   }
 
   Future<Uint8List> captureBytes() async {
