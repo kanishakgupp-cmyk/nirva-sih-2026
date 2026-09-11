@@ -36,19 +36,28 @@ class SupabaseTestSessionService implements TestSessionService {
       );
     }
 
-    final response = await _client
-        .from('test_sessions')
-        .insert({
-          'test_number': TestSessionValues.generateTestNumber(),
-          'case_id': caseId,
-          'operator_id': user.id,
-          'session_nonce': TestSessionValues.generateSessionNonce(),
-          'status': 'CREATED',
-        })
-        .select()
-        .single();
+    final payload = {
+      'test_number': TestSessionValues.generateTestNumber(),
+      'case_id': caseId,
+      'operator_id': user.id,
+      'session_nonce': TestSessionValues.generateSessionNonce(),
+      'status': 'CREATED',
+    };
 
-    return TestSession.fromMap(response);
+    try {
+      final response =
+          await _client.from('test_sessions').insert(payload).select().single();
+
+      return TestSession.fromMap(response);
+    } on PostgrestException catch (error) {
+      throw TestSessionServiceException(
+        _safePostgrestDiagnostic(error),
+      );
+    } catch (_) {
+      throw const TestSessionServiceException(
+        'The test session could not be created. Please try again.',
+      );
+    }
   }
 
   @override
@@ -127,6 +136,20 @@ class SupabaseTestSessionService implements TestSessionService {
       );
     }
   }
+
+  String _safePostgrestDiagnostic(PostgrestException error) {
+    final fields = <String>[
+      if (_hasText(error.code)) 'code: ${error.code}',
+      if (_hasText(error.message)) 'message: ${error.message}',
+      if (_hasText(error.details)) 'details: ${error.details}',
+      if (_hasText(error.hint)) 'hint: ${error.hint}',
+    ];
+    return fields.isEmpty
+        ? 'Test session creation failed. Please try again.'
+        : 'Test session creation failed. ${fields.join(' | ')}';
+  }
+
+  bool _hasText(Object? value) => value?.toString().trim().isNotEmpty ?? false;
 }
 
 class TestSessionValues {
