@@ -1,0 +1,1 @@
+"""NIRVA FastAPI application package."""
