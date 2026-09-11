@@ -7,7 +7,7 @@ import 'case_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   HomeScreen({required this.authService, CaseService? caseService, super.key})
-      : caseService = caseService ?? SupabaseCaseService();
+      : caseService = caseService ?? FastApiCaseService();
 
   final AuthService authService;
   final CaseService caseService;

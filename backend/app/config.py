@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     supabase_jwt_audience: str = "authenticated"
     database_url: SecretStr | None = None
     cors_origins: str = "http://localhost:8080,http://127.0.0.1:8080"
+    cors_origin_regex: str = (
+        r"^https://[a-z0-9-]+-8000\.(app\.github\.dev|githubpreview\.dev)$"
+    )
 
     @property
     def cors_origin_list(self) -> list[str]:

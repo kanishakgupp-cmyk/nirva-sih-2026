@@ -51,3 +51,10 @@ def get_current_user(
         ) from exc
 
     return claims
+
+
+def get_current_user_id(
+    claims: dict[str, Any] = Depends(get_current_user),
+) -> str:
+    """Return the verified Supabase subject used for row ownership."""
+    return str(claims["sub"])

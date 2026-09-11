@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.health import router as health_router
+from app.api.v1 import router as v1_router
 from app.config import get_settings
 
 settings = get_settings()
@@ -19,12 +20,18 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
+    allow_origin_regex=(
+        settings.cors_origin_regex
+        if settings.environment.lower() not in {"production", "prod"}
+        else None
+    ),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(health_router)
+app.include_router(v1_router)
 
 
 @app.exception_handler(Exception)

@@ -1,6 +1,5 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
-
 import '../models/case_model.dart';
+import 'api_client.dart';
 
 abstract interface class CaseService {
   Future<List<CaseModel>> getMyCases();
@@ -14,49 +13,44 @@ abstract interface class CaseService {
   });
 }
 
-class SupabaseCaseService implements CaseService {
-  SupabaseCaseService({SupabaseClient? client})
-      : _client = client ?? Supabase.instance.client;
+class FastApiCaseService implements CaseService {
+  FastApiCaseService({ApiClient? apiClient})
+      : _apiClient = apiClient ?? ApiClient();
 
-  final SupabaseClient _client;
+  final ApiClient _apiClient;
 
   @override
   Future<List<CaseModel>> getMyCases() async {
-    final user = _client.auth.currentUser;
-    if (user == null) {
-      throw const CaseServiceException('Please sign in to view cases.');
+    try {
+      final response = await _apiClient.getList('/api/v1/cases');
+      return response
+          .map(
+              (row) => CaseModel.fromMap(Map<String, dynamic>.from(row as Map)))
+          .toList();
+    } on ApiClientException catch (error) {
+      throw CaseServiceException(error.message);
+    } catch (_) {
+      throw const CaseServiceException(
+        'Cases could not be loaded. Please check your connection and try again.',
+      );
     }
-
-    final response = await _client
-        .from('cases')
-        .select()
-        .eq('created_by', user.id)
-        .order('created_at', ascending: false);
-
-    return (response as List)
-        .map((row) => CaseModel.fromMap(Map<String, dynamic>.from(row)))
-        .toList();
   }
 
   @override
   Future<CaseModel?> getCaseById(String caseId) async {
-    final user = _client.auth.currentUser;
-    if (user == null) {
-      throw const CaseServiceException('Please sign in to view this case.');
+    try {
+      final response = await _apiClient.getObject('/api/v1/cases/$caseId');
+      return CaseModel.fromMap(response);
+    } on ApiClientException catch (error) {
+      if (error.statusCode == 404) {
+        return null;
+      }
+      throw CaseServiceException(error.message);
+    } catch (_) {
+      throw const CaseServiceException(
+        'The case could not be loaded. Please try again.',
+      );
     }
-
-    final response = await _client
-        .from('cases')
-        .select()
-        .eq('id', caseId)
-        .eq('created_by', user.id)
-        .maybeSingle();
-
-    if (response == null) {
-      return null;
-    }
-
-    return CaseModel.fromMap(response);
   }
 
   @override
@@ -65,27 +59,18 @@ class SupabaseCaseService implements CaseService {
     required String title,
     String? description,
   }) async {
-    final user = _client.auth.currentUser;
-    if (user == null) {
-      throw const CaseServiceException(
-          'Please sign in before creating a case.');
-    }
-
     try {
-      await _client.from('cases').insert({
+      await _apiClient.post('/api/v1/cases', {
         'case_number': caseNumber.trim(),
         'title': title.trim(),
         'description':
             description?.trim().isEmpty ?? true ? null : description!.trim(),
-        'created_by': user.id,
       });
-    } on PostgrestException catch (error) {
-      if (error.code == '23505') {
+    } on ApiClientException catch (error) {
+      if (error.statusCode == 409) {
         throw const CaseServiceException('Case number already exists.');
       }
-      throw const CaseServiceException(
-        'The case could not be saved. Please try again.',
-      );
+      throw CaseServiceException(error.message);
     } catch (_) {
       throw const CaseServiceException(
         'The case could not be saved. Please try again.',
