@@ -1,16 +1,26 @@
 import 'package:flutter/material.dart';
 
 import '../models/case_model.dart';
+import '../services/test_session_service.dart';
+import 'start_test_screen.dart';
 
 class CaseDetailsScreen extends StatelessWidget {
-  const CaseDetailsScreen({required this.caseItem, super.key});
+  CaseDetailsScreen({
+    required this.caseItem,
+    TestSessionService? testSessionService,
+    super.key,
+  }) : testSessionService = testSessionService ?? SupabaseTestSessionService();
 
   final CaseModel caseItem;
+  final TestSessionService testSessionService;
 
-  void _showNextPhaseMessage(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Test workflow will be implemented in the next phase.'),
+  void _startTest(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => StartTestScreen(
+          caseItem: caseItem,
+          testSessionService: testSessionService,
+        ),
       ),
     );
   }
@@ -42,7 +52,7 @@ class CaseDetailsScreen extends StatelessWidget {
                 _DetailRow(label: 'Created by', value: caseItem.createdBy),
                 const SizedBox(height: 28),
                 FilledButton.icon(
-                  onPressed: () => _showNextPhaseMessage(context),
+                  onPressed: () => _startTest(context),
                   icon: const Icon(Icons.play_circle_outline),
                   label: const Text('Start Test'),
                 ),

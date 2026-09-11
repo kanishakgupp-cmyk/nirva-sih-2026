@@ -4,13 +4,20 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:nirva/models/profile.dart';
 import 'package:nirva/models/case_model.dart';
+import 'package:nirva/models/kit.dart';
+import 'package:nirva/models/test_session.dart';
 import 'package:nirva/screens/case_details_screen.dart';
 import 'package:nirva/screens/case_list_screen.dart';
 import 'package:nirva/screens/create_case_screen.dart';
 import 'package:nirva/screens/home_screen.dart';
+import 'package:nirva/screens/kit_verification_screen.dart';
 import 'package:nirva/screens/login_screen.dart';
+import 'package:nirva/screens/start_test_screen.dart';
+import 'package:nirva/screens/test_session_screen.dart';
 import 'package:nirva/services/auth_service.dart';
 import 'package:nirva/services/case_service.dart';
+import 'package:nirva/services/kit_service.dart';
+import 'package:nirva/services/test_session_service.dart';
 
 class FakeAuthService implements AuthService {
   @override
@@ -67,6 +74,60 @@ class FakeCaseService implements CaseService {
   }) async {}
 }
 
+class FakeTestSessionService implements TestSessionService {
+  FakeTestSessionService({TestSession? session})
+      : session = session ?? _session;
+
+  TestSession session;
+
+  @override
+  Future<TestSession> createTestSession({required String caseId}) async {
+    return session;
+  }
+
+  @override
+  Future<TestSession?> getTestSession(String testId) async => session;
+
+  @override
+  Future<void> attachKitToSession({
+    required String testId,
+    required String kitId,
+  }) async {}
+
+  @override
+  Future<void> updateTestStatus({
+    required String testId,
+    required String status,
+  }) async {}
+
+  static final _session = TestSession(
+    id: 'test-session-1',
+    testNumber: 'NIRVA-TEST-ABC123',
+    caseId: 'case-1',
+    kitId: null,
+    operatorId: 'officer-1',
+    sessionNonce: 'test-only-nonce',
+    reagentProtocol: null,
+    startedAt: null,
+    capturedAt: null,
+    reactionTimeSeconds: null,
+    latitude: null,
+    longitude: null,
+    gpsAccuracy: null,
+    status: 'CREATED',
+    createdAt: DateTime.utc(2026, 9, 11, 10, 30),
+  );
+}
+
+class FakeKitService implements KitService {
+  FakeKitService({this.kit});
+
+  final Kit? kit;
+
+  @override
+  Future<Kit?> findKitByCode(String kitCode) async => kit;
+}
+
 void main() {
   final sampleCase = CaseModel(
     id: 'case-1',
@@ -107,6 +168,62 @@ void main() {
 
     expect(caseItem.description, isNull);
     expect(caseItem.createdAt, DateTime.fromMillisecondsSinceEpoch(0));
+  });
+
+  test('TestSession.fromMap parses nullable fields safely', () {
+    final session = TestSession.fromMap({
+      'id': 'session-1',
+      'test_number': 'NIRVA-TEST-ABC123',
+      'case_id': 'case-1',
+      'kit_id': null,
+      'operator_id': 'officer-1',
+      'session_nonce': 'nonce',
+      'reagent_protocol': null,
+      'started_at': null,
+      'captured_at': null,
+      'reaction_time_seconds': null,
+      'latitude': null,
+      'longitude': null,
+      'gps_accuracy': null,
+      'status': 'CREATED',
+      'created_at': '2026-09-11T10:30:00Z',
+    });
+
+    expect(session.testNumber, 'NIRVA-TEST-ABC123');
+    expect(session.kitId, isNull);
+    expect(session.status, 'CREATED');
+    expect(session.createdAt, DateTime.utc(2026, 9, 11, 10, 30).toLocal());
+  });
+
+  test('Kit.fromMap parses nullable fields safely', () {
+    final kit = Kit.fromMap({
+      'id': 'kit-1',
+      'kit_code': 'NIRVA-DEMO-001',
+      'batch_number': null,
+      'expiry_date': null,
+      'status': 'ACTIVE',
+      'created_at': null,
+    });
+
+    expect(kit.kitCode, 'NIRVA-DEMO-001');
+    expect(kit.batchNumber, isNull);
+    expect(kit.expiryDate, isNull);
+    expect(kit.status, 'ACTIVE');
+  });
+
+  test('test number and nonce generators use non-empty values', () {
+    final testNumberA = TestSessionValues.generateTestNumber();
+    final testNumberB = TestSessionValues.generateTestNumber();
+    final nonceA = TestSessionValues.generateSessionNonce();
+    final nonceB = TestSessionValues.generateSessionNonce();
+
+    expect(testNumberA, startsWith('NIRVA-TEST-'));
+    expect(testNumberA, isNotEmpty);
+    expect(testNumberB, isNotEmpty);
+    expect(testNumberA, isNot(testNumberB));
+    expect(nonceA, isNotEmpty);
+    expect(nonceB, isNotEmpty);
+    expect(nonceA, isNot(nonceB));
   });
 
   testWidgets('login screen renders', (tester) async {
@@ -184,7 +301,12 @@ void main() {
 
   testWidgets('case details displays case information', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(home: CaseDetailsScreen(caseItem: sampleCase)),
+      MaterialApp(
+        home: CaseDetailsScreen(
+          caseItem: sampleCase,
+          testSessionService: FakeTestSessionService(),
+        ),
+      ),
     );
 
     expect(find.text('CASE-001'), findsOneWidget);
@@ -192,6 +314,106 @@ void main() {
     expect(find.text('A safe test description.'), findsOneWidget);
     expect(find.text('officer-1'), findsOneWidget);
     expect(find.text('Start Test'), findsOneWidget);
+  });
+
+  testWidgets('start test screen displays case information', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StartTestScreen(
+          caseItem: sampleCase,
+          testSessionService: FakeTestSessionService(),
+        ),
+      ),
+    );
+
+    expect(find.text('Start Test'), findsNWidgets(2));
+    expect(find.text('CASE-001'), findsOneWidget);
+    expect(find.text('Sample case'), findsOneWidget);
+    expect(find.text('Create Test Session'), findsOneWidget);
+  });
+
+  testWidgets('kit verification screen displays demo fallback', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: KitVerificationScreen(
+          session: FakeTestSessionService._session,
+          caseItem: sampleCase,
+          kitService: FakeKitService(),
+          testSessionService: FakeTestSessionService(),
+        ),
+      ),
+    );
+
+    expect(find.text('Verify Kit'), findsOneWidget);
+    expect(find.text('Scan the kit QR code'), findsOneWidget);
+    expect(find.text('Demo kit code'), findsOneWidget);
+    expect(find.text('Verify Kit Code'), findsOneWidget);
+  });
+
+  testWidgets('empty kit code shows validation message', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: KitVerificationScreen(
+          session: FakeTestSessionService._session,
+          caseItem: sampleCase,
+          kitService: FakeKitService(),
+          testSessionService: FakeTestSessionService(),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Verify Kit Code'));
+    await tester.pump();
+
+    expect(find.text('Enter a demo kit code.'), findsOneWidget);
+  });
+
+  testWidgets('unregistered kit code shows failure state', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: KitVerificationScreen(
+          session: FakeTestSessionService._session,
+          caseItem: sampleCase,
+          kitService: FakeKitService(),
+          testSessionService: FakeTestSessionService(),
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField), 'UNKNOWN-KIT');
+    await tester.tap(find.text('Verify Kit Code'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Kit verification failed'), findsOneWidget);
+    expect(find.text('Kit not registered.'), findsOneWidget);
+    expect(find.text('Scan Again'), findsOneWidget);
+  });
+
+  testWidgets('test session screen displays session information',
+      (tester) async {
+    final kit = Kit(
+      id: 'kit-1',
+      kitCode: 'NIRVA-DEMO-001',
+      batchNumber: 'DEMO-BATCH-001',
+      expiryDate: DateTime(2030, 12, 31),
+      status: 'ACTIVE',
+      createdAt: DateTime(2026, 9, 11),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TestSessionScreen(
+          session: FakeTestSessionService._session,
+          caseItem: sampleCase,
+          kit: kit,
+        ),
+      ),
+    );
+
+    expect(find.text('Test Session'), findsNWidgets(2));
+    expect(find.text('NIRVA-TEST-ABC123'), findsOneWidget);
+    expect(find.text('CASE-001'), findsOneWidget);
+    expect(find.text('NIRVA-DEMO-001'), findsOneWidget);
+    expect(find.text('RUNNING'), findsOneWidget);
   });
 
   testWidgets('sign out action can be invoked without credentials',
