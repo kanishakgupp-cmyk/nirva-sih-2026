@@ -1,15 +1,21 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:nirva/models/profile.dart';
 import 'package:nirva/models/case_model.dart';
+import 'package:nirva/models/evidence_record.dart';
 import 'package:nirva/models/kit.dart';
 import 'package:nirva/models/test_session.dart';
 import 'package:nirva/models/workflow_step.dart';
 import 'package:nirva/screens/case_details_screen.dart';
 import 'package:nirva/screens/case_list_screen.dart';
 import 'package:nirva/screens/create_case_screen.dart';
+import 'package:nirva/screens/evidence_capture_screen.dart';
+import 'package:nirva/screens/evidence_success_screen.dart';
 import 'package:nirva/screens/home_screen.dart';
 import 'package:nirva/screens/guided_workflow_screen.dart';
 import 'package:nirva/screens/kit_verification_screen.dart';
@@ -17,8 +23,13 @@ import 'package:nirva/screens/login_screen.dart';
 import 'package:nirva/screens/start_test_screen.dart';
 import 'package:nirva/screens/test_session_screen.dart';
 import 'package:nirva/services/auth_service.dart';
+import 'package:nirva/services/camera_service.dart';
 import 'package:nirva/services/case_service.dart';
+import 'package:nirva/services/evidence_service.dart';
+import 'package:nirva/services/evidence_hash_service.dart';
+import 'package:nirva/services/image_quality_service.dart';
 import 'package:nirva/services/kit_service.dart';
+import 'package:nirva/services/location_service.dart';
 import 'package:nirva/services/test_session_service.dart';
 import 'package:nirva/services/workflow_service.dart';
 import 'package:nirva/widgets/workflow_timer.dart';
@@ -133,6 +144,47 @@ class FakeKitService implements KitService {
 
   @override
   Future<Kit?> findKitByCode(String kitCode) async => kit;
+}
+
+class UnavailableCameraService extends CameraService {
+  @override
+  Future<void> initialize() async {
+    throw const CameraServiceException('No camera is available.');
+  }
+}
+
+class UnavailableLocationService extends LocationService {
+  const UnavailableLocationService();
+
+  @override
+  Future<LocationResult> captureLocation() async {
+    return const LocationResult.unavailable(reason: 'Not available in test.');
+  }
+}
+
+class FakeEvidenceService implements EvidenceService {
+  @override
+  Future<EvidenceRecord> createEvidenceRecord({
+    required TestSession session,
+    required Uint8List imageBytes,
+    required DateTime capturedAt,
+    required double? latitude,
+    required double? longitude,
+    required double? gpsAccuracy,
+    required double imageQualityScore,
+    required double sharpnessScore,
+    required double brightnessScore,
+  }) async {
+    return EvidenceRecord.fromMap({
+      'id': 'evidence-1',
+      'test_id': session.id,
+      'operator_id': session.operatorId,
+      'captured_at': capturedAt.toIso8601String(),
+      'image_sha256': 'demo-hash',
+      'image_quality_score': imageQualityScore,
+      'created_at': capturedAt.toIso8601String(),
+    });
+  }
 }
 
 class FastWorkflowService extends WorkflowService {
@@ -260,6 +312,67 @@ void main() {
     expect(kit.batchNumber, isNull);
     expect(kit.expiryDate, isNull);
     expect(kit.status, 'ACTIVE');
+  });
+
+  test('EvidenceRecord.fromMap parses evidence metadata safely', () {
+    final record = EvidenceRecord.fromMap({
+      'id': 'evidence-1',
+      'test_id': 'session-1',
+      'operator_id': 'officer-1',
+      'captured_at': '2026-09-11T10:30:00Z',
+      'latitude': null,
+      'longitude': null,
+      'gps_accuracy': null,
+      'image_path': 'officer-1/session-1/demo.jpg',
+      'image_sha256': 'abc123',
+      'image_quality_score': 82.5,
+      'legal_label': 'INDICATIVE ONLY - LABORATORY CONFIRMATION REQUIRED',
+      'created_at': '2026-09-11T10:30:00Z',
+    });
+
+    expect(record.testId, 'session-1');
+    expect(record.imagePath, contains('demo.jpg'));
+    expect(record.imageSha256, 'abc123');
+    expect(record.latitude, isNull);
+    expect(record.imageQualityScore, 82.5);
+  });
+
+  test('SHA-256 is deterministic and distinguishes bytes', () {
+    const service = EvidenceHashService();
+    final first = service.sha256Bytes([1, 2, 3]);
+    final same = service.sha256Bytes([1, 2, 3]);
+    final different = service.sha256Bytes([1, 2, 4]);
+
+    expect(first, same);
+    expect(first, isNot(different));
+    expect(first, hasLength(64));
+  });
+
+  test('image quality rejects unreadable or undersized data', () {
+    const service = ImageQualityService();
+
+    expect(
+      () => service.analyze(Uint8List.fromList([1, 2, 3])),
+      throwsA(isA<ImageQualityException>()),
+    );
+  });
+
+  test('low-quality valid image requests a retake', () {
+    final tinyImage = img.Image(width: 1, height: 1);
+    final bytes = Uint8List.fromList(img.encodeJpg(tinyImage));
+    final result = const ImageQualityService().analyze(bytes);
+
+    expect(result.requiresRetake, isTrue);
+    expect(result.qualityScore, lessThan(70));
+  });
+
+  test('location unavailable state carries no fabricated coordinates', () {
+    const result = LocationResult.unavailable(reason: 'Permission denied.');
+
+    expect(result.available, isFalse);
+    expect(result.latitude, isNull);
+    expect(result.longitude, isNull);
+    expect(result.accuracy, isNull);
   });
 
   test('test number and nonce generators use non-empty values', () {
@@ -550,6 +663,62 @@ void main() {
     expect(find.text('WORKFLOW COMPLETE'), findsOneWidget);
     expect(find.textContaining('NIRVA-TEST-ABC123'), findsOneWidget);
     expect(find.textContaining('READY FOR EVIDENCE CAPTURE'), findsOneWidget);
+  });
+
+  testWidgets('evidence capture screen shows demo-only fallback',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EvidenceCaptureScreen(
+          session: FakeTestSessionService._session,
+          caseItem: sampleCase,
+          kit: Kit(
+            id: 'kit-1',
+            kitCode: 'NIRVA-DEMO-001',
+            batchNumber: 'DEMO-BATCH-001',
+            expiryDate: DateTime(2030, 12, 31),
+            status: 'ACTIVE',
+            createdAt: DateTime(2026, 9, 11),
+          ),
+          cameraService: UnavailableCameraService(),
+          evidenceService: FakeEvidenceService(),
+          locationService: const UnavailableLocationService(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Evidence Capture'), findsOneWidget);
+    expect(find.text('DEMO ONLY'), findsOneWidget);
+    expect(find.text('Use Demo Image'), findsOneWidget);
+    expect(find.text('DEMONSTRATION EVIDENCE CAPTURE'), findsOneWidget);
+  });
+
+  testWidgets('evidence success screen displays metadata', (tester) async {
+    final record = EvidenceRecord.fromMap({
+      'id': 'evidence-1',
+      'test_id': 'session-1',
+      'operator_id': 'officer-1',
+      'captured_at': '2026-09-11T10:30:00Z',
+      'image_sha256': '1234567890abcdef1234567890abcdef',
+      'image_quality_score': 88.0,
+      'created_at': '2026-09-11T10:30:00Z',
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EvidenceSuccessScreen(
+          record: record,
+          session: FakeTestSessionService._session,
+          caseItem: sampleCase,
+        ),
+      ),
+    );
+
+    expect(find.text('EVIDENCE SAVED'), findsOneWidget);
+    expect(find.textContaining('NIRVA-TEST-ABC123'), findsOneWidget);
+    expect(find.textContaining('88.0'), findsOneWidget);
+    expect(find.textContaining('12345678...90abcdef'), findsOneWidget);
+    expect(find.text('Evidence capture complete.'), findsOneWidget);
   });
 
   testWidgets('required timed step cannot be completed before timer',

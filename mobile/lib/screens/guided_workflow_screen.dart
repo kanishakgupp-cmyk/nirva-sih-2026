@@ -7,6 +7,7 @@ import '../models/workflow_step.dart';
 import '../services/test_session_service.dart';
 import '../services/workflow_service.dart';
 import '../widgets/workflow_timer.dart';
+import 'evidence_capture_screen.dart';
 
 class GuidedWorkflowScreen extends StatefulWidget {
   const GuidedWorkflowScreen({
@@ -414,8 +415,16 @@ class _CompletionView extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               FilledButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Finish'),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => EvidenceCaptureScreen(
+                      session: widget.session,
+                      caseItem: widget.caseItem,
+                      kit: widget.kit,
+                    ),
+                  ),
+                ),
+                child: const Text('Continue to Evidence Capture'),
               ),
             ],
           ),
