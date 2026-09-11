@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
@@ -373,6 +374,28 @@ void main() {
     expect(result.latitude, isNull);
     expect(result.longitude, isNull);
     expect(result.accuracy, isNull);
+  });
+
+  test('camera selection prefers the back-facing camera', () {
+    const front = CameraDescription(
+      name: 'front',
+      lensDirection: CameraLensDirection.front,
+      sensorOrientation: 0,
+    );
+    const back = CameraDescription(
+      name: 'back',
+      lensDirection: CameraLensDirection.back,
+      sensorOrientation: 0,
+    );
+
+    expect(
+      CameraService.selectPreferredCamera([front, back]).name,
+      'back',
+    );
+    expect(
+      CameraService.selectPreferredCamera([front]).name,
+      'front',
+    );
   });
 
   test('test number and nonce generators use non-empty values', () {

@@ -7,6 +7,15 @@ class CameraService {
 
   CameraController? get controller => _controller;
 
+  static CameraDescription selectPreferredCamera(
+    List<CameraDescription> cameras,
+  ) {
+    return cameras.firstWhere(
+      (camera) => camera.lensDirection == CameraLensDirection.back,
+      orElse: () => cameras.first,
+    );
+  }
+
   Future<void> initialize() async {
     final cameras = await availableCameras();
     if (cameras.isEmpty) {
@@ -14,7 +23,7 @@ class CameraService {
     }
 
     final controller = CameraController(
-      cameras.first,
+      selectPreferredCamera(cameras),
       ResolutionPreset.medium,
       enableAudio: false,
     );
