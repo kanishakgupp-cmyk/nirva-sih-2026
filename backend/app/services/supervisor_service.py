@@ -29,12 +29,64 @@ class SupervisorService:
         }
 
     def list_evidence(self, page: int, page_size: int, search: str | None, status: str | None) -> dict[str, Any]:
+        valid_statuses = {"PENDING", "APPROVED", "FLAGGED", "RETURNED"}
+        if status and status != "ALL":
+            if status not in valid_statuses:
+                return {"items": [], "page": page, "page_size": page_size, "total": 0}
+
         query = self._client.table("evidence_records").select("*", count="exact")
         if status and status != "ALL":
             query = query.eq("review_status", status)
-        if search:
-            search = search.replace(",", " ")
-            query = query.or_(f"id.ilike.%{search}%,test_id.ilike.%{search}%")
+
+        if search and search.strip():
+            clean_search = search.strip()
+            is_uuid = False
+            try:
+                import uuid
+                uuid.UUID(clean_search)
+                is_uuid = True
+            except (ValueError, AttributeError):
+                is_uuid = False
+
+            if is_uuid:
+                query = query.or_(f"id.eq.{clean_search},test_id.eq.{clean_search}")
+            else:
+                matching_session_ids: set[str] = set()
+                try:
+                    sessions_res = self._client.table("test_sessions").select("id").ilike("test_number", f"%{clean_search}%").execute()
+                    for s in (sessions_res.data or []):
+                        matching_session_ids.add(str(s["id"]))
+                except Exception:
+                    pass
+
+                try:
+                    cases_res = self._client.table("cases").select("id").or_(f"case_number.ilike.%{clean_search}%,title.ilike.%{clean_search}%").execute()
+                    case_ids = [str(c["id"]) for c in (cases_res.data or [])]
+                    if case_ids:
+                        case_sessions_res = self._client.table("test_sessions").select("id").in_("case_id", case_ids).execute()
+                        for s in (case_sessions_res.data or []):
+                            matching_session_ids.add(str(s["id"]))
+                except Exception:
+                    pass
+
+                matching_operator_ids: set[str] = set()
+                try:
+                    profiles_res = self._client.table("profiles").select("id").ilike("display_name", f"%{clean_search}%").execute()
+                    for p in (profiles_res.data or []):
+                        matching_operator_ids.add(str(p["id"]))
+                except Exception:
+                    pass
+
+                if not matching_session_ids and not matching_operator_ids:
+                    return {"items": [], "page": page, "page_size": page_size, "total": 0}
+
+                filters = []
+                if matching_session_ids:
+                    filters.append(f"test_id.in.({','.join(matching_session_ids)})")
+                if matching_operator_ids:
+                    filters.append(f"operator_id.in.({','.join(matching_operator_ids)})")
+                query = query.or_(",".join(filters))
+
         offset = (page - 1) * page_size
         response = query.order("captured_at", desc=True).range(offset, offset + page_size - 1).execute()
         return {"items": [self._summary(self._enrich(row)) for row in response.data or []], "page": page,
@@ -44,7 +96,8 @@ class SupervisorService:
         response = self._client.table("evidence_records").select("*").eq("id", evidence_id).maybe_single().execute()
         if not response.data:
             raise SupervisorEvidenceNotFoundError
-        row = self._enrich(dict(response.data))
+        row_dict = response.data[0] if isinstance(response.data, list) else response.data
+        row = self._enrich(dict(row_dict))
         audit = self._client.table("audit_events").select("*").eq("test_id", row["test_id"]).order("created_at").execute()
         detail = self._summary(row)
         detail.update({
@@ -58,7 +111,8 @@ class SupervisorService:
             "legal_label": row.get("legal_label"), "previous_record_hash": row.get("previous_record_hash"),
             "record_hash": row.get("record_hash"), "signature": row.get("signature"),
             "signature_algorithm": row.get("signature_algorithm"), "key_id": row.get("key_id"),
-            "audit_history": list(audit.data or []),
+            "review_reason": row.get("review_reason"), "reviewed_by": row.get("reviewed_by"),
+            "reviewed_at": row.get("reviewed_at"), "audit_history": list(audit.data or []),
         })
         if row.get("image_path"):
             signed = self._client.storage.from_("evidence").create_signed_url(row["image_path"], 300)
@@ -77,8 +131,9 @@ class SupervisorService:
         if new_status is None:
             raise SupervisorReviewStateError(f"Evidence cannot be {action.lower()} from {previous}.")
         now = datetime.now(timezone.utc).isoformat()
+        cleaned_reason = reason.strip() if reason and reason.strip() else None
         updated = self._client.table("evidence_records").update({
-            "review_status": new_status, "review_reason": reason, "reviewed_by": supervisor_id, "reviewed_at": now,
+            "review_status": new_status, "review_reason": cleaned_reason, "reviewed_by": supervisor_id, "reviewed_at": now,
         }).eq("id", evidence_id).eq("review_status", previous).select("*").execute()
         if not updated.data:
             raise SupervisorReviewStateError("Evidence review state changed; refresh and try again.")
@@ -90,7 +145,7 @@ class SupervisorService:
         self._client.table("audit_events").insert({
             "test_id": record["test_id"], "operator_id": supervisor_id, "event_type": event_type,
             "event_data": {"action": action, "previous_status": previous, "new_status": new_status,
-                            "supervisor_id": supervisor_id, "timestamp": now, "reason": reason},
+                            "supervisor_id": supervisor_id, "timestamp": now, "reason": cleaned_reason},
         }).execute()
         return self.get_evidence(evidence_id)
 
@@ -98,13 +153,15 @@ class SupervisorService:
         response = self._client.table("evidence_records").select("*").eq("id", evidence_id).maybe_single().execute()
         if not response.data:
             raise SupervisorEvidenceNotFoundError
-        return dict(response.data)
+        row_dict = response.data[0] if isinstance(response.data, list) else response.data
+        return dict(row_dict)
 
     def _summary(self, row: dict[str, Any]) -> dict[str, Any]:
         return {
             "id": row["id"], "test_id": row["test_id"], "test_number": row.get("test_number"),
             "case_number": row.get("case_number"), "operator": row.get("operator"), "captured_at": row.get("captured_at"),
             "evidence_status": row.get("evidence_status", "CAPTURED"), "review_status": row.get("review_status", "PENDING"),
+            "review_reason": row.get("review_reason"),
             "analysis_result": row.get("analysis_result") or row.get("result"),
             "confidence": row.get("analysis_confidence") or row.get("confidence"),
             "integrity_status": "CHAIN VALID" if row.get("record_hash") else "NOT FINALIZED",

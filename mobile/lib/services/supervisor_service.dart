@@ -5,7 +5,7 @@ abstract interface class SupervisorService {
   Future<SupervisorOverview> getOverview();
   Future<List<SupervisorEvidenceSummary>> getEvidence({String? status, String? search});
   Future<SupervisorEvidenceDetail> getEvidenceDetail(String evidenceId);
-  Future<SupervisorEvidenceDetail> review(String evidenceId, String action);
+  Future<SupervisorEvidenceDetail> review(String evidenceId, String action, {String? reason});
 }
 
 class FastApiSupervisorService implements SupervisorService {
@@ -37,8 +37,16 @@ class FastApiSupervisorService implements SupervisorService {
       );
 
   @override
-  Future<SupervisorEvidenceDetail> review(String evidenceId, String action) async =>
-      SupervisorEvidenceDetail.fromMap(
-        await _apiClient.post('/api/v1/supervisor/evidence/$evidenceId/$action', {}),
-      );
+  Future<SupervisorEvidenceDetail> review(String evidenceId, String action, {String? reason}) async {
+    final body = <String, dynamic>{};
+    if (reason != null && reason.trim().isNotEmpty) {
+      body['reason'] = reason.trim();
+    }
+    return SupervisorEvidenceDetail.fromMap(
+      await _apiClient.post(
+        '/api/v1/supervisor/evidence/$evidenceId/$action',
+        body,
+      ),
+    );
+  }
 }

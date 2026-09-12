@@ -28,6 +28,7 @@ class SupervisorEvidenceSummary(BaseModel):
     captured_at: datetime | None = None
     evidence_status: str
     review_status: ReviewStatus
+    review_reason: str | None = None
     analysis_result: str | None = None
     confidence: float | None = Field(default=None, ge=0, le=1)
     integrity_status: str
@@ -62,8 +63,10 @@ class SupervisorEvidenceDetail(SupervisorEvidenceSummary):
     signature: str | None = None
     signature_algorithm: str | None = None
     key_id: str | None = None
+    reviewed_by: UUID | None = None
+    reviewed_at: datetime | None = None
     audit_history: list[dict[str, Any]]
 
 
 class SupervisorReviewAction(BaseModel):
-    reason: str | None = None
+    reason: str | None = Field(default=None, max_length=1000)

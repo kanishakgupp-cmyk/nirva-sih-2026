@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'models/profile.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/supervisor_dashboard_screen.dart';
@@ -106,12 +107,24 @@ class AuthGate extends StatelessWidget {
           return LoginScreen(authService: authService);
         }
 
-        return FutureBuilder(
+        return FutureBuilder<Profile?>(
           future: authService.getCurrentProfile(),
           builder: (context, profileSnapshot) {
+            if (profileSnapshot.connectionState == ConnectionState.waiting) {
+              return const Scaffold(
+                body: Center(
+                  child: CircularProgressIndicator(),
+                ),
+              );
+            }
+
             final profile = profileSnapshot.data;
-            if (profile?.role == ProfileRole.supervisor) {
-              return SupervisorDashboardScreen(service: FastApiSupervisorService());
+            if (profile?.role == ProfileRole.supervisor ||
+                profile?.role == ProfileRole.admin) {
+              return SupervisorDashboardScreen(
+                service: FastApiSupervisorService(),
+                authService: authService,
+              );
             }
             return HomeScreen(authService: authService);
           },

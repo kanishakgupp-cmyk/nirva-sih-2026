@@ -6,6 +6,8 @@ class SupervisorOverview {
     required this.pendingReview,
     required this.analyzedEvidence,
     required this.finalizedEvidence,
+    required this.flaggedEvidence,
+    required this.returnedEvidence,
   });
 
   final int totalCases;
@@ -14,6 +16,8 @@ class SupervisorOverview {
   final int pendingReview;
   final int analyzedEvidence;
   final int finalizedEvidence;
+  final int flaggedEvidence;
+  final int returnedEvidence;
 
   factory SupervisorOverview.fromMap(Map<String, dynamic> map) {
     return SupervisorOverview(
@@ -23,6 +27,8 @@ class SupervisorOverview {
       pendingReview: map['pending_review'] as int? ?? 0,
       analyzedEvidence: map['analyzed_evidence'] as int? ?? 0,
       finalizedEvidence: map['finalized_evidence'] as int? ?? 0,
+      flaggedEvidence: map['flagged_evidence'] as int? ?? 0,
+      returnedEvidence: map['returned_evidence'] as int? ?? 0,
     );
   }
 }
@@ -37,6 +43,7 @@ class SupervisorEvidenceSummary {
     required this.capturedAt,
     required this.evidenceStatus,
     required this.reviewStatus,
+    this.reviewReason,
     required this.analysisResult,
     required this.confidence,
     required this.integrityStatus,
@@ -51,6 +58,7 @@ class SupervisorEvidenceSummary {
   final DateTime? capturedAt;
   final String evidenceStatus;
   final String reviewStatus;
+  final String? reviewReason;
   final String? analysisResult;
   final double? confidence;
   final String integrityStatus;
@@ -66,6 +74,7 @@ class SupervisorEvidenceSummary {
       capturedAt: _date(map['captured_at']),
       evidenceStatus: map['evidence_status'] as String? ?? 'CAPTURED',
       reviewStatus: map['review_status'] as String? ?? 'PENDING',
+      reviewReason: map['review_reason'] as String?,
       analysisResult: map['analysis_result'] as String?,
       confidence: _double(map['confidence']),
       integrityStatus: map['integrity_status'] as String? ?? 'UNKNOWN',
@@ -87,6 +96,7 @@ class SupervisorEvidenceDetail extends SupervisorEvidenceSummary {
     required super.capturedAt,
     required super.evidenceStatus,
     required super.reviewStatus,
+    super.reviewReason,
     required super.analysisResult,
     required super.confidence,
     required super.integrityStatus,
@@ -103,6 +113,8 @@ class SupervisorEvidenceDetail extends SupervisorEvidenceSummary {
     required this.analysisUncertainty,
     required this.modelVersion,
     required this.legalLabel,
+    this.reviewedBy,
+    this.reviewedAt,
     required this.auditHistory,
   });
 
@@ -118,26 +130,40 @@ class SupervisorEvidenceDetail extends SupervisorEvidenceSummary {
   final double? analysisUncertainty;
   final String? modelVersion;
   final String? legalLabel;
+  final String? reviewedBy;
+  final DateTime? reviewedAt;
   final List<Map<String, dynamic>> auditHistory;
 
   factory SupervisorEvidenceDetail.fromMap(Map<String, dynamic> map) {
     final summary = SupervisorEvidenceSummary.fromMap(map);
     return SupervisorEvidenceDetail(
-      id: summary.id, testId: summary.testId, testNumber: summary.testNumber,
-      caseNumber: summary.caseNumber, operator: summary.operator,
-      capturedAt: summary.capturedAt, evidenceStatus: summary.evidenceStatus,
-      reviewStatus: summary.reviewStatus, analysisResult: summary.analysisResult,
-      confidence: summary.confidence, integrityStatus: summary.integrityStatus,
-      finalized: summary.finalized, operatorId: map['operator_id'] as String? ?? '',
+      id: summary.id,
+      testId: summary.testId,
+      testNumber: summary.testNumber,
+      caseNumber: summary.caseNumber,
+      operator: summary.operator,
+      capturedAt: summary.capturedAt,
+      evidenceStatus: summary.evidenceStatus,
+      reviewStatus: summary.reviewStatus,
+      reviewReason: summary.reviewReason,
+      analysisResult: summary.analysisResult,
+      confidence: summary.confidence,
+      integrityStatus: summary.integrityStatus,
+      finalized: summary.finalized,
+      operatorId: map['operator_id'] as String? ?? '',
       latitude: SupervisorEvidenceSummary._double(map['latitude']),
       longitude: SupervisorEvidenceSummary._double(map['longitude']),
       gpsAccuracy: SupervisorEvidenceSummary._double(map['gps_accuracy']),
       imageQualityScore: SupervisorEvidenceSummary._double(map['image_quality_score']),
       blurScore: SupervisorEvidenceSummary._double(map['blur_score']),
       brightnessScore: SupervisorEvidenceSummary._double(map['brightness_score']),
-      imageSha256: map['image_sha256'] as String?, imageUrl: map['image_url'] as String?,
+      imageSha256: map['image_sha256'] as String?,
+      imageUrl: map['image_url'] as String?,
       analysisUncertainty: SupervisorEvidenceSummary._double(map['analysis_uncertainty']),
-      modelVersion: map['model_version'] as String?, legalLabel: map['legal_label'] as String?,
+      modelVersion: map['model_version'] as String?,
+      legalLabel: map['legal_label'] as String?,
+      reviewedBy: map['reviewed_by'] as String?,
+      reviewedAt: SupervisorEvidenceSummary._date(map['reviewed_at']),
       auditHistory: (map['audit_history'] as List<dynamic>? ?? [])
           .map((event) => Map<String, dynamic>.from(event as Map))
           .toList(),
