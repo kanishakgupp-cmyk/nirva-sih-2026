@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -8,40 +9,78 @@ class ApiClient {
     String? baseUrl,
     SupabaseClient? supabaseClient,
     http.Client? httpClient,
+    @visibleForTesting String? accessToken,
   })  : _baseUrl = (baseUrl ?? const String.fromEnvironment('API_BASE_URL'))
             .trim()
             .replaceAll(RegExp(r'/+$'), ''),
         _supabaseClient = supabaseClient ?? Supabase.instance.client,
-        _httpClient = httpClient ?? http.Client();
+        _httpClient = httpClient ?? http.Client(),
+        _accessToken = accessToken;
 
   final String _baseUrl;
   final SupabaseClient _supabaseClient;
   final http.Client _httpClient;
+  final String? _accessToken;
 
   Future<List<dynamic>> getList(String path) async {
-    final response =
-        await _send(() => _httpClient.get(buildUri(path), headers: _headers));
-    return jsonDecode(response.body) as List<dynamic>;
+    final uri = buildUri(path);
+    final response = await _send(
+      method: 'GET',
+      uri: uri,
+      request: () => _httpClient.get(uri, headers: _headers),
+    );
+    try {
+      return jsonDecode(response.body) as List<dynamic>;
+    } on Object catch (error) {
+      _log('GET $uri invalid JSON response: ${error.runtimeType}');
+      throw ApiClientException(
+        'The server returned an invalid response (HTTP ${response.statusCode}).',
+        statusCode: response.statusCode,
+      );
+    }
   }
 
   Future<Map<String, dynamic>> post(
     String path,
     Map<String, dynamic> body,
   ) async {
+    final uri = buildUri(path);
     final response = await _send(
-      () => _httpClient.post(
-        buildUri(path),
+      method: 'POST',
+      uri: uri,
+      request: () => _httpClient.post(
+        uri,
         headers: {..._headers, 'Content-Type': 'application/json'},
         body: jsonEncode(body),
       ),
     );
-    return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    try {
+      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    } on Object catch (error) {
+      _log('POST $uri invalid JSON response: ${error.runtimeType}');
+      throw ApiClientException(
+        'The server returned an invalid response (HTTP ${response.statusCode}).',
+        statusCode: response.statusCode,
+      );
+    }
   }
 
   Future<Map<String, dynamic>> getObject(String path) async {
-    final response =
-        await _send(() => _httpClient.get(buildUri(path), headers: _headers));
-    return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    final uri = buildUri(path);
+    final response = await _send(
+      method: 'GET',
+      uri: uri,
+      request: () => _httpClient.get(uri, headers: _headers),
+    );
+    try {
+      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    } on Object catch (error) {
+      _log('GET $uri invalid JSON response: ${error.runtimeType}');
+      throw ApiClientException(
+        'The server returned an invalid response (HTTP ${response.statusCode}).',
+        statusCode: response.statusCode,
+      );
+    }
   }
 
   Uri buildUri(String path) {
@@ -59,7 +98,8 @@ class ApiClient {
   }
 
   Map<String, String> get _headers {
-    final token = _supabaseClient.auth.currentSession?.accessToken;
+    final token =
+        _accessToken ?? _supabaseClient.auth.currentSession?.accessToken;
     if (token == null || token.isEmpty) {
       throw const ApiClientException('Please sign in before using the API.');
     }
@@ -69,9 +109,23 @@ class ApiClient {
     };
   }
 
-  Future<http.Response> _send(Future<http.Response> Function() request) async {
+  Future<http.Response> _send({
+    required String method,
+    required Uri uri,
+    required Future<http.Response> Function() request,
+  }) async {
+    final safeUri = _safeUri(uri);
+    _log('$method $safeUri');
     try {
       final response = await request();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        _log(
+          '$method $safeUri -> ${response.statusCode}: '
+          '${_safeBody(response.body)}',
+        );
+      } else {
+        _log('$method $safeUri -> ${response.statusCode}');
+      }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         String message = 'The server request failed. Please try again.';
         try {
@@ -87,10 +141,34 @@ class ApiClient {
       return response;
     } on ApiClientException {
       rethrow;
-    } catch (_) {
+    } on http.ClientException catch (error) {
+      _log('$method $safeUri transport failure: ${error.runtimeType}');
       throw const ApiClientException(
         'The server could not be reached. Please try again.',
       );
+    } catch (error) {
+      _log('$method $safeUri unexpected failure: ${error.runtimeType}');
+      throw ApiClientException(
+        'The request could not be completed (${error.runtimeType}).',
+      );
+    }
+  }
+
+  static String _safeBody(String body) {
+    final redacted = body.replaceAll(
+      RegExp(r'Bearer\s+[A-Za-z0-9._~-]+', caseSensitive: false),
+      'Bearer [redacted]',
+    );
+    return redacted.length <= 500
+        ? redacted
+        : '${redacted.substring(0, 500)}...';
+  }
+
+  static String _safeUri(Uri uri) => '${uri.scheme}://${uri.host}${uri.path}';
+
+  static void _log(String message) {
+    if (kDebugMode) {
+      debugPrint('[ApiClient] $message');
     }
   }
 }

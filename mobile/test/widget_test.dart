@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -63,6 +65,23 @@ class FakeAuthService implements AuthService {
         displayName: 'Test Officer',
         role: ProfileRole.officer,
       );
+}
+
+class _StubHttpClient extends http.BaseClient {
+  _StubHttpClient(this.handler);
+
+  final http.Response Function(http.BaseRequest) handler;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final response = handler(request);
+    return http.StreamedResponse(
+      Stream.value(response.bodyBytes),
+      response.statusCode,
+      headers: response.headers,
+      request: request,
+    );
+  }
 }
 
 class FakeCaseService implements CaseService {
@@ -249,8 +268,53 @@ void main() {
       supabaseClient: SupabaseClient('https://example.com', 'anon-key'),
     );
 
-    expect(client.buildUri('/cases').toString(), 'https://example.com/api/cases');
-    expect(client.buildUri('cases').toString(), 'https://example.com/api/cases');
+    expect(
+        client.buildUri('/cases').toString(), 'https://example.com/api/cases');
+    expect(
+        client.buildUri('cases').toString(), 'https://example.com/api/cases');
+  });
+
+  test('ApiClient preserves HTTP status and safe server detail', () async {
+    final client = ApiClient(
+      baseUrl: 'https://example.com',
+      supabaseClient: SupabaseClient('https://example.com', 'anon-key'),
+      accessToken: 'test-token',
+      httpClient: _StubHttpClient(
+        (_) => http.Response('{"detail":"Token rejected."}', 401),
+      ),
+    );
+
+    await expectLater(
+      client.getList('/api/v1/cases'),
+      throwsA(
+        isA<ApiClientException>()
+            .having((error) => error.statusCode, 'statusCode', 401)
+            .having((error) => error.message, 'message', 'Token rejected.'),
+      ),
+    );
+  });
+
+  test('ApiClient reserves unreachable message for transport failures',
+      () async {
+    final client = ApiClient(
+      baseUrl: 'https://example.com',
+      supabaseClient: SupabaseClient('https://example.com', 'anon-key'),
+      accessToken: 'test-token',
+      httpClient: _StubHttpClient((_) {
+        throw http.ClientException('connection failed');
+      }),
+    );
+
+    await expectLater(
+      client.getList('/api/v1/cases'),
+      throwsA(
+        isA<ApiClientException>().having(
+          (error) => error.message,
+          'message',
+          'The server could not be reached. Please try again.',
+        ),
+      ),
+    );
   });
 
   test('CaseModel.fromMap parses a valid case', () {
