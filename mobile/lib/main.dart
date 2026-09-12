@@ -13,18 +13,55 @@ Future<void> main() async {
       String.fromEnvironment('SUPABASE_PUBLISHABLE_KEY');
 
   if (supabaseUrl.isEmpty || supabasePublishableKey.isEmpty) {
-    throw StateError(
-      'SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY must be provided with '
-      '--dart-define.',
+    runApp(
+      const StartupErrorApp(
+        message: 'Missing Supabase configuration. Start the app with '
+            'SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY passed through '
+            '--dart-define.',
+      ),
     );
+    return;
   }
 
-  await Supabase.initialize(
-    url: supabaseUrl,
-    publishableKey: supabasePublishableKey,
-  );
+  try {
+    await Supabase.initialize(
+      url: supabaseUrl,
+      publishableKey: supabasePublishableKey,
+    );
+  } on Object catch (error) {
+    runApp(StartupErrorApp(message: 'Unable to initialize Supabase: $error'));
+    return;
+  }
 
   runApp(NirvaApp());
+}
+
+class StartupErrorApp extends StatelessWidget {
+  const StartupErrorApp({required this.message, super.key});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'NIRVA',
+      home: Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 16),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class NirvaApp extends StatelessWidget {
