@@ -6,7 +6,7 @@ This is the FastAPI application boundary for NIRVA.
 
 ```text
 Flutter -> FastAPI -> Supabase/PostgreSQL + Storage
-						 \\-> Django later: internal admin/control plane
+                         \\-> Django later: internal admin/control plane
 ```
 
 The existing Supabase PostgreSQL schema and private `evidence` storage remain the source of truth. Django is a future internal admin/control-plane component and is not part of the client request path.
@@ -23,22 +23,20 @@ python -m pip install -r requirements.txt
 cp .env.example .env
 ```
 
-The health route starts without real credentials. Case routes require both JWT verification and the server-side Supabase configuration. Never commit `.env`, service-role keys, JWT secrets, database passwords, or access tokens.
+The health route starts without real credentials. Case routes require `SUPABASE_URL` and the server-only `SUPABASE_SERVICE_ROLE_KEY`. JWT verification uses Supabase's public JWKS endpoint; `SUPABASE_JWT_SECRET` is not required for normal operation. Never commit `.env`, service-role keys, JWT secrets, database passwords, or access tokens.
 
 ## Environment variables
 
 - `ENVIRONMENT`: `development`, `test`, or `production`.
-- `SUPABASE_URL`: existing Supabase project URL.
-- `SUPABASE_SERVICE_ROLE_KEY`: server-only credential for future trusted operations.
-- `SUPABASE_ANON_KEY`: optional server-side public key.
-- `SUPABASE_JWT_SECRET`: optional server-only secret for explicit local/test HS256 fixtures only.
-- `SUPABASE_JWT_AUDIENCE`: expected JWT audience, normally `authenticated`.
-- `ENABLE_LOCAL_HS256_FALLBACK`: defaults to `false`; keep disabled for Supabase. JWKS ES256 verification is used for protected routes.
-- `DATABASE_URL`: optional future PostgreSQL connection string.
+- `SUPABASE_URL`: required for JWKS issuer verification and Supabase access.
+- `SUPABASE_SERVICE_ROLE_KEY`: required server-only credential for trusted case database operations.
+- `SUPABASE_JWT_AUDIENCE`: optional expected JWT audience; defaults to `authenticated`.
+- `SUPABASE_JWT_SECRET`: optional server-only local/test fixture secret; never needed by Supabase production JWKS verification.
+- `ENABLE_LOCAL_HS256_FALLBACK`: optional and defaults to `false`; keep disabled for Supabase.
 - `CORS_ORIGINS`: comma-separated development origins. Defaults to Flutter web origins on port 8080.
 - `CORS_ORIGIN_REGEX`: development-only regex for Codespaces forwarded HTTPS origins.
 
-Secrets are typed as `SecretStr` and are never included in application responses or logs.
+The backend automatically loads `backend/.env` using an absolute path derived from its settings module, regardless of whether Uvicorn is started from the repository root or `backend/`. Secrets are typed as `SecretStr` and are never included in application responses or logs. Flutter receives only its public Supabase configuration and the FastAPI URL through `--dart-define`.
 
 ## Run
 
