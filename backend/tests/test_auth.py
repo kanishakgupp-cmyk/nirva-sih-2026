@@ -18,6 +18,7 @@ def test_invalid_supabase_jwt_is_rejected() -> None:
     settings = Settings(
         supabase_url="https://example.supabase.co",
         supabase_jwt_secret=SecretStr("test-secret-that-is-at-least-32-bytes-long"),
+        enable_local_hs256_fallback=True,
     )
     credentials = HTTPAuthorizationCredentials(
         scheme="Bearer",
@@ -34,6 +35,7 @@ def test_verified_jwt_returns_claims() -> None:
     settings = Settings(
         supabase_url="https://example.supabase.co",
         supabase_jwt_secret=SecretStr("test-secret-that-is-at-least-32-bytes-long"),
+        enable_local_hs256_fallback=True,
     )
     token = jwt.encode(
         {
@@ -107,9 +109,83 @@ def test_verified_jwt_returns_claims_with_jwks(monkeypatch) -> None:
     assert claims["sub"] == "user-2"
 
 
+@pytest.mark.parametrize(
+    ("claim", "value"),
+    [
+        ("iss", "https://wrong.supabase.co/auth/v1"),
+        ("aud", "wrong-audience"),
+        ("exp", datetime.now(timezone.utc) - timedelta(minutes=5)),
+    ],
+)
+def test_jwks_rejects_invalid_registered_claims(monkeypatch, claim, value) -> None:
+    settings = Settings(supabase_url="https://example.supabase.co")
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    token = jwt.encode(
+        {
+            "sub": "user-3",
+            "aud": "authenticated",
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+            "iss": "https://example.supabase.co/auth/v1",
+            claim: value,
+        },
+        private_key,
+        algorithm="ES256",
+        headers={"kid": "test-key"},
+    )
+
+    class FakeJWKClient:
+        def __init__(self, url: str):
+            pass
+
+        def get_signing_key_from_jwt(self, jwt_token: str):
+            return type("SigningKey", (), {"key": private_key.public_key()})()
+
+    monkeypatch.setattr(jwt, "PyJWKClient", FakeJWKClient)
+
+    with pytest.raises(HTTPException) as error:
+        get_current_user(
+            HTTPAuthorizationCredentials(scheme="Bearer", credentials=token),
+            settings,
+        )
+
+    assert error.value.status_code == 401
+
+
+def test_jwks_requires_subject(monkeypatch) -> None:
+    settings = Settings(supabase_url="https://example.supabase.co")
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    token = jwt.encode(
+        {
+            "aud": "authenticated",
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+            "iss": "https://example.supabase.co/auth/v1",
+        },
+        private_key,
+        algorithm="ES256",
+        headers={"kid": "test-key"},
+    )
+
+    class FakeJWKClient:
+        def __init__(self, url: str):
+            pass
+
+        def get_signing_key_from_jwt(self, jwt_token: str):
+            return type("SigningKey", (), {"key": private_key.public_key()})()
+
+    monkeypatch.setattr(jwt, "PyJWKClient", FakeJWKClient)
+
+    with pytest.raises(HTTPException) as error:
+        get_current_user(
+            HTTPAuthorizationCredentials(scheme="Bearer", credentials=token),
+            settings,
+        )
+
+    assert error.value.status_code == 401
+
+
 def test_codespaces_flutter_origin_is_allowed() -> None:
     client = TestClient(app)
-    origin = "https://example-8080.app.github.dev"
+    origin = "https://automatic-space-trout-vpp66ww7rxgx2x4vj-8080.app.github.dev"
 
     response = client.options(
         "/api/v1/cases",

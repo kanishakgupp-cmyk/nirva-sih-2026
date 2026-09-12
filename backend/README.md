@@ -1,15 +1,15 @@
 # NIRVA FastAPI Backend
 
-This is the Phase 7A backend foundation for NIRVA. It provides a clean FastAPI boundary that will eventually host authenticated application services without changing the working Flutter application yet.
+This is the FastAPI application boundary for NIRVA.
 
 ## Current architecture
 
 ```text
-CURRENT: Flutter -> Supabase directly
-TARGET:  Flutter -> FastAPI -> Supabase/PostgreSQL + Storage
+Flutter -> FastAPI -> Supabase/PostgreSQL + Storage
+						 \\-> Django later: internal admin/control plane
 ```
 
-The existing Supabase PostgreSQL schema and private `evidence` storage remain the source of truth. This phase does not recreate or modify that schema, initialize a database client, or migrate any Flutter service.
+The existing Supabase PostgreSQL schema and private `evidence` storage remain the source of truth. Django is a future internal admin/control-plane component and is not part of the client request path.
 
 ## Setup
 
@@ -31,8 +31,9 @@ The health route starts without real credentials. Case routes require both JWT v
 - `SUPABASE_URL`: existing Supabase project URL.
 - `SUPABASE_SERVICE_ROLE_KEY`: server-only credential for future trusted operations.
 - `SUPABASE_ANON_KEY`: optional server-side public key.
-- `SUPABASE_JWT_SECRET`: server-only secret used by the current HS256 JWT verification abstraction.
+- `SUPABASE_JWT_SECRET`: optional server-only secret for explicit local/test HS256 fixtures only.
 - `SUPABASE_JWT_AUDIENCE`: expected JWT audience, normally `authenticated`.
+- `ENABLE_LOCAL_HS256_FALLBACK`: defaults to `false`; keep disabled for Supabase. JWKS ES256 verification is used for protected routes.
 - `DATABASE_URL`: optional future PostgreSQL connection string.
 - `CORS_ORIGINS`: comma-separated development origins. Defaults to Flutter web origins on port 8080.
 - `CORS_ORIGIN_REGEX`: development-only regex for Codespaces forwarded HTTPS origins.
@@ -52,7 +53,7 @@ In Codespaces, forward port 8000 as needed. The health endpoint is available at 
 
 ## Authentication foundation
 
-`app.core.auth.get_current_user` extracts `Authorization: Bearer <token>` and verifies the token with PyJWT when `SUPABASE_JWT_SECRET` is configured. It requires the Supabase audience and standard subject/expiration claims. It never accepts an operator ID from request data as identity. Asymmetric Supabase signing should be implemented with JWKS verification before protected routes are enabled for such a project.
+`app.core.auth.get_current_user` extracts `Authorization: Bearer <token>` and verifies Supabase ES256 tokens using the project's JWKS endpoint. It verifies the signature, issuer, audience, expiration, and subject claims. An HS256 path exists only when `ENABLE_LOCAL_HS256_FALLBACK=true` is explicitly configured for local/test fixtures. It never accepts an operator ID from request data as identity.
 
 ## Case API
 

@@ -17,13 +17,14 @@ class Settings(BaseSettings):
     supabase_anon_key: SecretStr | None = None
     supabase_jwt_secret: SecretStr | None = None
     supabase_jwt_audience: str = "authenticated"
+    enable_local_hs256_fallback: bool = False
     database_url: SecretStr | None = None
     cors_origins: str = (
         "http://localhost:8080,http://127.0.0.1:8080,"
         "http://localhost:8000,http://127.0.0.1:8000"
     )
     cors_origin_regex: str = (
-        r"^https://[a-z0-9-]+-(8000|8080)\.(app\.github\.dev|githubpreview\.dev)$"
+        r"^https://[a-z0-9-]+-8080\.(app\.github\.dev|githubpreview\.dev)$"
     )
 
     @property

@@ -35,35 +35,29 @@ def get_current_user(
         )
 
     token = credentials.credentials
-    issuer = (
-        f"{settings.supabase_url.rstrip('/')}/auth/v1".rstrip("/")
-        if settings.supabase_url
-        else None
-    )
+    issuer = f"{settings.supabase_url.rstrip('/')}/auth/v1" if settings.supabase_url else None
 
-    if issuer:
+    if issuer and not settings.enable_local_hs256_fallback:
         try:
             jwk_client = jwt.PyJWKClient(f"{issuer}/.well-known/jwks.json")
             signing_key = jwk_client.get_signing_key_from_jwt(token)
             return jwt.decode(
                 token,
                 signing_key.key,
-                algorithms=["ES256", "RS256"],
+                algorithms=["ES256"],
                 audience=settings.supabase_jwt_audience,
                 issuer=issuer,
-                options={"require": ["sub", "aud", "exp"]},
+                options={"require": ["sub", "aud", "exp", "iss"]},
             )
         except (InvalidTokenError, PyJWKClientError):
-            if settings.supabase_jwt_secret is None:
-                _raise_invalid_token()
+            _raise_invalid_token()
         except Exception:
-            if settings.supabase_jwt_secret is None:
-                _raise_invalid_token()
+            _raise_invalid_token()
 
-    if settings.supabase_jwt_secret is None:
+    if not settings.enable_local_hs256_fallback or settings.supabase_jwt_secret is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="JWT verification is not configured.",
+            detail="JWKS JWT verification is not configured.",
         )
 
     try:
@@ -73,11 +67,13 @@ def get_current_user(
             algorithms=["HS256"],
             audience=settings.supabase_jwt_audience,
             issuer=issuer if issuer else None,
-            options={"require": ["sub", "aud", "exp"]},
+            options={"require": ["sub", "aud", "exp", "iss"]},
         )
     except InvalidTokenError:
         _raise_invalid_token()
 
+    if not isinstance(claims.get("sub"), str) or not claims["sub"]:
+        _raise_invalid_token()
     return claims
 
 
