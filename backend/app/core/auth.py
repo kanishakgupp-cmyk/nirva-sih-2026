@@ -82,3 +82,19 @@ def get_current_user_id(
 ) -> str:
     """Return the verified Supabase subject used for row ownership."""
     return str(claims["sub"])
+
+
+def require_supervisor(
+    user_id: str = Depends(get_current_user_id),
+) -> str:
+    """Require a verified user whose server-side profile is privileged."""
+    from app.db.client import get_configured_supabase_client
+
+    response = (
+        get_configured_supabase_client().table("profiles").select("role")
+        .eq("id", user_id).maybe_single().execute()
+    )
+    profile = response.data or {}
+    if profile.get("role") not in {"SUPERVISOR", "ADMIN"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Supervisor access required.")
+    return user_id

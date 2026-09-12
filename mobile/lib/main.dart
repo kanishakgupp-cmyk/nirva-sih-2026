@@ -3,7 +3,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/supervisor_dashboard_screen.dart';
 import 'services/auth_service.dart';
+import 'services/supervisor_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -104,7 +106,16 @@ class AuthGate extends StatelessWidget {
           return LoginScreen(authService: authService);
         }
 
-        return HomeScreen(authService: authService);
+        return FutureBuilder(
+          future: authService.getCurrentProfile(),
+          builder: (context, profileSnapshot) {
+            final profile = profileSnapshot.data;
+            if (profile?.role == ProfileRole.supervisor) {
+              return SupervisorDashboardScreen(service: FastApiSupervisorService());
+            }
+            return HomeScreen(authService: authService);
+          },
+        );
       },
     );
   }
