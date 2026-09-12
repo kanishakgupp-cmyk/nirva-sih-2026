@@ -23,6 +23,7 @@ import 'package:nirva/screens/kit_verification_screen.dart';
 import 'package:nirva/screens/login_screen.dart';
 import 'package:nirva/screens/start_test_screen.dart';
 import 'package:nirva/screens/test_session_screen.dart';
+import 'package:nirva/services/api_client.dart';
 import 'package:nirva/services/auth_service.dart';
 import 'package:nirva/services/camera_service.dart';
 import 'package:nirva/services/case_service.dart';
@@ -241,6 +242,16 @@ void main() {
     createdBy: 'officer-1',
     createdAt: DateTime.utc(2026, 9, 11, 10, 30),
   );
+
+  test('ApiClient trims trailing slashes and normalizes path URLs', () {
+    final client = ApiClient(
+      baseUrl: 'https://example.com/api/',
+      supabaseClient: SupabaseClient('https://example.com', 'anon-key'),
+    );
+
+    expect(client.buildUri('/cases').toString(), 'https://example.com/api/cases');
+    expect(client.buildUri('cases').toString(), 'https://example.com/api/cases');
+  });
 
   test('CaseModel.fromMap parses a valid case', () {
     final caseItem = CaseModel.fromMap({

@@ -3,11 +3,19 @@ from typing import Any
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jwt.exceptions import InvalidTokenError
+from jwt.exceptions import InvalidTokenError, PyJWKClientError
 
 from app.config import Settings, get_settings
 
 _bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def _raise_invalid_token() -> None:
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired bearer token.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 def get_current_user(
@@ -16,9 +24,8 @@ def get_current_user(
 ) -> dict[str, Any]:
     """Validate a Supabase JWT and return its claims.
 
-    Supabase projects using the legacy JWT secret can be validated locally with
-    this HS256 verifier. Projects using asymmetric signing should replace this
-    implementation with JWKS-based verification before enabling protected routes.
+    Live Supabase tokens are signed with asymmetric keys from JWKS. A legacy
+    HS256 secret remains available as a fallback for local/test-only setups.
     """
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(
@@ -27,28 +34,49 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    token = credentials.credentials
+    issuer = (
+        f"{settings.supabase_url.rstrip('/')}/auth/v1".rstrip("/")
+        if settings.supabase_url
+        else None
+    )
+
+    if issuer:
+        try:
+            jwk_client = jwt.PyJWKClient(f"{issuer}/.well-known/jwks.json")
+            signing_key = jwk_client.get_signing_key_from_jwt(token)
+            return jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["ES256", "RS256"],
+                audience=settings.supabase_jwt_audience,
+                issuer=issuer,
+                options={"require": ["sub", "aud", "exp"]},
+            )
+        except (InvalidTokenError, PyJWKClientError):
+            if settings.supabase_jwt_secret is None:
+                _raise_invalid_token()
+        except Exception:
+            if settings.supabase_jwt_secret is None:
+                _raise_invalid_token()
+
     if settings.supabase_jwt_secret is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="JWT verification is not configured.",
         )
 
-    issuer = f"{settings.supabase_url.rstrip('/')}/auth/v1".rstrip("/")
     try:
         claims = jwt.decode(
-            credentials.credentials,
+            token,
             settings.supabase_jwt_secret.get_secret_value(),
             algorithms=["HS256"],
             audience=settings.supabase_jwt_audience,
-            issuer=issuer if settings.supabase_url else None,
+            issuer=issuer if issuer else None,
             options={"require": ["sub", "aud", "exp"]},
         )
-    except InvalidTokenError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired bearer token.",
-            headers={"WWW-Authenticate": "Bearer"},
-        ) from exc
+    except InvalidTokenError:
+        _raise_invalid_token()
 
     return claims
 

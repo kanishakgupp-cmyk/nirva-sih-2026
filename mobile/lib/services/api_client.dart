@@ -9,6 +9,7 @@ class ApiClient {
     SupabaseClient? supabaseClient,
     http.Client? httpClient,
   })  : _baseUrl = (baseUrl ?? const String.fromEnvironment('API_BASE_URL'))
+            .trim()
             .replaceAll(RegExp(r'/+$'), ''),
         _supabaseClient = supabaseClient ?? Supabase.instance.client,
         _httpClient = httpClient ?? http.Client();
@@ -19,7 +20,7 @@ class ApiClient {
 
   Future<List<dynamic>> getList(String path) async {
     final response =
-        await _send(() => _httpClient.get(_uri(path), headers: _headers));
+        await _send(() => _httpClient.get(buildUri(path), headers: _headers));
     return jsonDecode(response.body) as List<dynamic>;
   }
 
@@ -29,7 +30,7 @@ class ApiClient {
   ) async {
     final response = await _send(
       () => _httpClient.post(
-        _uri(path),
+        buildUri(path),
         headers: {..._headers, 'Content-Type': 'application/json'},
         body: jsonEncode(body),
       ),
@@ -39,17 +40,22 @@ class ApiClient {
 
   Future<Map<String, dynamic>> getObject(String path) async {
     final response =
-        await _send(() => _httpClient.get(_uri(path), headers: _headers));
+        await _send(() => _httpClient.get(buildUri(path), headers: _headers));
     return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
   }
 
-  Uri _uri(String path) {
+  Uri buildUri(String path) {
     if (_baseUrl.isEmpty) {
       throw const ApiClientException(
         'API_BASE_URL must be provided with --dart-define.',
       );
     }
-    return Uri.parse('$_baseUrl$path');
+
+    final normalizedPath = path.startsWith('/') ? path : '/$path';
+    final baseUrl = _baseUrl.endsWith('/')
+        ? _baseUrl.substring(0, _baseUrl.length - 1)
+        : _baseUrl;
+    return Uri.parse('$baseUrl$normalizedPath');
   }
 
   Map<String, String> get _headers {
