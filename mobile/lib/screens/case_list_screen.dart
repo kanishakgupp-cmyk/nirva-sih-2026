@@ -102,7 +102,7 @@ class _CaseListScreenState extends State<CaseListScreen> {
 
   String _errorMessage(Object? error) {
     if (error is CaseServiceException) {
-      return error.message;
+      return error.userMessage;
     }
     return 'Cases could not be loaded. Please check your connection and try again.';
   }

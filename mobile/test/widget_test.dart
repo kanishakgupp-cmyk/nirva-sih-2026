@@ -272,6 +272,7 @@ void main() {
         client.buildUri('/cases').toString(), 'https://example.com/api/cases');
     expect(
         client.buildUri('cases').toString(), 'https://example.com/api/cases');
+    expect(client.safeEndpointDescription, 'https://example.com/api');
   });
 
   test('ApiClient preserves HTTP status and safe server detail', () async {
@@ -289,6 +290,11 @@ void main() {
       throwsA(
         isA<ApiClientException>()
             .having((error) => error.statusCode, 'statusCode', 401)
+            .having(
+              (error) => error.category,
+              'category',
+              ApiErrorCategory.http401,
+            )
             .having((error) => error.message, 'message', 'Token rejected.'),
       ),
     );
@@ -308,11 +314,17 @@ void main() {
     await expectLater(
       client.getList('/api/v1/cases'),
       throwsA(
-        isA<ApiClientException>().having(
-          (error) => error.message,
-          'message',
-          'The server could not be reached. Please try again.',
-        ),
+        isA<ApiClientException>()
+            .having(
+              (error) => error.message,
+              'message',
+              'The server could not be reached. Please try again.',
+            )
+            .having(
+              (error) => error.category,
+              'category',
+              ApiErrorCategory.networkError,
+            ),
       ),
     );
   });

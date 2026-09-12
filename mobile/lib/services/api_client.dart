@@ -22,6 +22,16 @@ class ApiClient {
   final http.Client _httpClient;
   final String? _accessToken;
 
+  String get safeEndpointDescription {
+    final uri = Uri.tryParse(_baseUrl);
+    if (uri == null || uri.scheme.isEmpty || uri.host.isEmpty) {
+      return 'API endpoint is not configured';
+    }
+    final port = uri.hasPort ? ':${uri.port}' : '';
+    final path = uri.path.isEmpty ? '/' : uri.path;
+    return '${uri.scheme}://${uri.host}$port$path';
+  }
+
   Future<List<dynamic>> getList(String path) async {
     final uri = buildUri(path);
     final response = await _send(
@@ -36,6 +46,7 @@ class ApiClient {
       throw ApiClientException(
         'The server returned an invalid response (HTTP ${response.statusCode}).',
         statusCode: response.statusCode,
+        category: ApiErrorCategory.invalidResponse,
       );
     }
   }
@@ -61,6 +72,7 @@ class ApiClient {
       throw ApiClientException(
         'The server returned an invalid response (HTTP ${response.statusCode}).',
         statusCode: response.statusCode,
+        category: ApiErrorCategory.invalidResponse,
       );
     }
   }
@@ -79,6 +91,7 @@ class ApiClient {
       throw ApiClientException(
         'The server returned an invalid response (HTTP ${response.statusCode}).',
         statusCode: response.statusCode,
+        category: ApiErrorCategory.invalidResponse,
       );
     }
   }
@@ -87,6 +100,7 @@ class ApiClient {
     if (_baseUrl.isEmpty) {
       throw const ApiClientException(
         'API_BASE_URL must be provided with --dart-define.',
+        category: ApiErrorCategory.unknownClientError,
       );
     }
 
@@ -101,7 +115,10 @@ class ApiClient {
     final token =
         _accessToken ?? _supabaseClient.auth.currentSession?.accessToken;
     if (token == null || token.isEmpty) {
-      throw const ApiClientException('Please sign in before using the API.');
+      throw const ApiClientException(
+        'Please sign in before using the API.',
+        category: ApiErrorCategory.authSessionMissing,
+      );
     }
     return {
       'Accept': 'application/json',
@@ -136,7 +153,11 @@ class ApiClient {
         } catch (_) {
           // Keep the generic message for non-JSON error responses.
         }
-        throw ApiClientException(message, statusCode: response.statusCode);
+        throw ApiClientException(
+          message,
+          statusCode: response.statusCode,
+          category: ApiErrorCategory.fromStatusCode(response.statusCode),
+        );
       }
       return response;
     } on ApiClientException {
@@ -145,11 +166,13 @@ class ApiClient {
       _log('$method $safeUri transport failure: ${error.runtimeType}');
       throw const ApiClientException(
         'The server could not be reached. Please try again.',
+        category: ApiErrorCategory.networkError,
       );
     } catch (error) {
       _log('$method $safeUri unexpected failure: ${error.runtimeType}');
       throw ApiClientException(
         'The request could not be completed (${error.runtimeType}).',
+        category: ApiErrorCategory.unknownClientError,
       );
     }
   }
@@ -164,7 +187,10 @@ class ApiClient {
         : '${redacted.substring(0, 500)}...';
   }
 
-  static String _safeUri(Uri uri) => '${uri.scheme}://${uri.host}${uri.path}';
+  static String _safeUri(Uri uri) {
+    final port = uri.hasPort ? ':${uri.port}' : '';
+    return '${uri.scheme}://${uri.host}$port${uri.path}';
+  }
 
   static void _log(String message) {
     if (kDebugMode) {
@@ -173,11 +199,54 @@ class ApiClient {
   }
 }
 
+enum ApiErrorCategory {
+  networkError('NETWORK_ERROR'),
+  http401('HTTP_401'),
+  http403('HTTP_403'),
+  http404('HTTP_404'),
+  http409('HTTP_409'),
+  http422('HTTP_422'),
+  http500('HTTP_500'),
+  invalidResponse('INVALID_RESPONSE'),
+  authSessionMissing('AUTH_SESSION_MISSING'),
+  unknownClientError('UNKNOWN_CLIENT_ERROR');
+
+  const ApiErrorCategory(this.label);
+
+  final String label;
+
+  static ApiErrorCategory fromStatusCode(int statusCode) {
+    switch (statusCode) {
+      case 401:
+        return http401;
+      case 403:
+        return http403;
+      case 404:
+        return http404;
+      case 409:
+        return http409;
+      case 422:
+        return http422;
+      case 500:
+        return http500;
+      default:
+        return unknownClientError;
+    }
+  }
+}
+
 class ApiClientException implements Exception {
-  const ApiClientException(this.message, {this.statusCode});
+  const ApiClientException(
+    this.message, {
+    this.statusCode,
+    this.category = ApiErrorCategory.unknownClientError,
+  });
 
   final String message;
   final int? statusCode;
+  final ApiErrorCategory category;
+
+  String get userMessage => '${category.label}: $message';
 
   @override
   String toString() => message;

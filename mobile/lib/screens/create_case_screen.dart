@@ -49,7 +49,7 @@ class _CreateCaseScreenState extends State<CreateCaseScreen> {
       }
     } on CaseServiceException catch (error) {
       if (mounted) {
-        setState(() => _errorMessage = error.message);
+        setState(() => _errorMessage = error.userMessage);
       }
     } catch (_) {
       if (mounted) {
