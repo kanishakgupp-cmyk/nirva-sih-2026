@@ -32,6 +32,12 @@ class ApiClient {
     return '${uri.scheme}://${uri.host}$port$path';
   }
 
+  bool get hasAccessToken {
+    final token =
+        _accessToken ?? _supabaseClient.auth.currentSession?.accessToken;
+    return token != null && token.isNotEmpty;
+  }
+
   Future<List<dynamic>> getList(String path) async {
     final uri = buildUri(path);
     final response = await _send(
@@ -42,7 +48,7 @@ class ApiClient {
     try {
       return jsonDecode(response.body) as List<dynamic>;
     } on Object catch (error) {
-      _log('GET $uri invalid JSON response: ${error.runtimeType}');
+      _log('GET ${_safeUri(uri)} invalid JSON response: ${error.runtimeType}');
       throw ApiClientException(
         'The server returned an invalid response (HTTP ${response.statusCode}).',
         statusCode: response.statusCode,
@@ -68,7 +74,7 @@ class ApiClient {
     try {
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     } on Object catch (error) {
-      _log('POST $uri invalid JSON response: ${error.runtimeType}');
+      _log('POST ${_safeUri(uri)} invalid JSON response: ${error.runtimeType}');
       throw ApiClientException(
         'The server returned an invalid response (HTTP ${response.statusCode}).',
         statusCode: response.statusCode,
@@ -87,7 +93,7 @@ class ApiClient {
     try {
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     } on Object catch (error) {
-      _log('GET $uri invalid JSON response: ${error.runtimeType}');
+      _log('GET ${_safeUri(uri)} invalid JSON response: ${error.runtimeType}');
       throw ApiClientException(
         'The server returned an invalid response (HTTP ${response.statusCode}).',
         statusCode: response.statusCode,
@@ -132,7 +138,7 @@ class ApiClient {
     required Future<http.Response> Function() request,
   }) async {
     final safeUri = _safeUri(uri);
-    _log('$method $safeUri');
+    _log('$method $safeUri tokenPresent=$hasAccessToken');
     try {
       final response = await request();
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -164,17 +170,42 @@ class ApiClient {
       rethrow;
     } on http.ClientException catch (error) {
       _log('$method $safeUri transport failure: ${error.runtimeType}');
-      throw const ApiClientException(
+      throw ApiClientException(
         'The server could not be reached. Please try again.',
         category: ApiErrorCategory.networkError,
+        diagnostic: _diagnostic(
+          method: method,
+          uri: safeUri,
+          exception: error,
+        ),
       );
     } catch (error) {
       _log('$method $safeUri unexpected failure: ${error.runtimeType}');
       throw ApiClientException(
         'The request could not be completed (${error.runtimeType}).',
         category: ApiErrorCategory.unknownClientError,
+        diagnostic: _diagnostic(
+          method: method,
+          uri: safeUri,
+          exception: error,
+        ),
       );
     }
+  }
+
+  String _diagnostic({
+    required String method,
+    required String uri,
+    required Object exception,
+  }) {
+    if (!kDebugMode) {
+      return '';
+    }
+    final detail = exception is http.ClientException
+        ? exception.message
+        : exception.toString();
+    return 'url=$uri; method=$method; tokenPresent=$hasAccessToken; '
+        'exception=${exception.runtimeType}; message=${_safeBody(detail)}';
   }
 
   static String _safeBody(String body) {
@@ -240,11 +271,13 @@ class ApiClientException implements Exception {
     this.message, {
     this.statusCode,
     this.category = ApiErrorCategory.unknownClientError,
+    this.diagnostic = '',
   });
 
   final String message;
   final int? statusCode;
   final ApiErrorCategory category;
+  final String diagnostic;
 
   String get userMessage => '${category.label}: $message';
 

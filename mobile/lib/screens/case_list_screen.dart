@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/case_model.dart';
@@ -102,9 +103,16 @@ class _CaseListScreenState extends State<CaseListScreen> {
 
   String _errorMessage(Object? error) {
     if (error is CaseServiceException) {
-      return error.userMessage;
+      return _withDiagnostic(error.userMessage, error.diagnostic);
     }
     return 'Cases could not be loaded. Please check your connection and try again.';
+  }
+
+  String _withDiagnostic(String message, String diagnostic) {
+    if (!kDebugMode || diagnostic.isEmpty) {
+      return message;
+    }
+    return '$message\n$diagnostic';
   }
 }
 

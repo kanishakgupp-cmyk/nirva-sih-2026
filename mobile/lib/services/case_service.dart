@@ -32,6 +32,7 @@ class FastApiCaseService implements CaseService {
         error.message,
         category: error.category,
         statusCode: error.statusCode,
+        diagnostic: error.diagnostic,
       );
     } catch (_) {
       throw const CaseServiceException(
@@ -53,6 +54,7 @@ class FastApiCaseService implements CaseService {
         error.message,
         category: error.category,
         statusCode: error.statusCode,
+        diagnostic: error.diagnostic,
       );
     } catch (_) {
       throw const CaseServiceException(
@@ -86,6 +88,7 @@ class FastApiCaseService implements CaseService {
         error.message,
         category: error.category,
         statusCode: error.statusCode,
+        diagnostic: error.diagnostic,
       );
     } catch (_) {
       throw const CaseServiceException(
@@ -100,11 +103,13 @@ class CaseServiceException implements Exception {
     this.message, {
     this.category = ApiErrorCategory.unknownClientError,
     this.statusCode,
+    this.diagnostic = '',
   });
 
   final String message;
   final ApiErrorCategory category;
   final int? statusCode;
+  final String diagnostic;
 
   String get userMessage => '${category.label}: $message';
 

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../services/case_service.dart';
@@ -49,7 +50,11 @@ class _CreateCaseScreenState extends State<CreateCaseScreen> {
       }
     } on CaseServiceException catch (error) {
       if (mounted) {
-        setState(() => _errorMessage = error.userMessage);
+        setState(() {
+          _errorMessage = kDebugMode && error.diagnostic.isNotEmpty
+              ? '${error.userMessage}\n${error.diagnostic}'
+              : error.userMessage;
+        });
       }
     } catch (_) {
       if (mounted) {

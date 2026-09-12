@@ -329,6 +329,33 @@ void main() {
     );
   });
 
+  test('ApiClient exposes only safe development request diagnostics', () async {
+    final client = ApiClient(
+      baseUrl: 'https://example.com:8443/api/',
+      supabaseClient: SupabaseClient('https://example.com', 'anon-key'),
+      accessToken: 'test-token',
+      httpClient: _StubHttpClient((_) {
+        throw http.ClientException('Failed to fetch');
+      }),
+    );
+
+    try {
+      await client.getList('/api/v1/cases?token=hidden');
+      fail('Expected ApiClientException');
+    } on ApiClientException catch (error) {
+      expect(error.category, ApiErrorCategory.networkError);
+      expect(
+        error.diagnostic,
+        contains('url=https://example.com:8443/api/api/v1/cases'),
+      );
+      expect(error.diagnostic, contains('tokenPresent=true'));
+      expect(error.diagnostic, contains('exception=ClientException'));
+      expect(error.diagnostic, contains('message=Failed to fetch'));
+      expect(error.diagnostic, isNot(contains('hidden')));
+      expect(error.diagnostic, isNot(contains('test-token')));
+    }
+  });
+
   test('CaseModel.fromMap parses a valid case', () {
     final caseItem = CaseModel.fromMap({
       'id': 'case-1',

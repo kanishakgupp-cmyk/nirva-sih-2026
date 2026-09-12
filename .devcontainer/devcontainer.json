@@ -1,0 +1,16 @@
+{
+  "name": "NIRVA SIH 2026",
+  "forwardPorts": [8000, 8080],
+  "portsAttributes": {
+    "8000": {
+      "label": "NIRVA FastAPI",
+      "onAutoForward": "notify",
+      "visibility": "public"
+    },
+    "8080": {
+      "label": "NIRVA Flutter Web",
+      "onAutoForward": "openBrowser",
+      "visibility": "public"
+    }
+  }
+}
