@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 
 from app.services.evidence_integrity_service import EvidenceIntegrityService
+from app.services.analysis_service import EvidenceAnalysisService
 
 
 @pytest.fixture
@@ -43,3 +45,67 @@ def test_broken_chain_fails(record) -> None:
     record["previous_record_hash"] = "wrong"
     record["record_hash"] = service.record_hash(record, "previous")
     assert not service.verify_record(record, "previous")
+
+
+def test_create_evidence_uses_execute_rows_without_singleton_methods() -> None:
+    test_id = str(uuid4())
+    operator_id = str(uuid4())
+
+    class Query:
+        def __init__(self, table: str):
+            self.table = table
+            self.payload = None
+
+        def select(self, *_args):
+            return self
+
+        def eq(self, *_args):
+            return self
+
+        def insert(self, payload):
+            self.payload = payload
+            return self
+
+        def execute(self):
+            if self.table == "test_sessions":
+                return SimpleNamespace(data=[{"id": test_id}])
+            if self.table == "evidence_records":
+                return SimpleNamespace(data=[{
+                    "id": str(uuid4()),
+                    "test_id": test_id,
+                    "operator_id": operator_id,
+                    "image_sha256": self.payload["image_sha256"],
+                    "evidence_status": "CAPTURED",
+                }])
+            return SimpleNamespace(data=[])
+
+    class StorageBucket:
+        def upload(self, *_args, **_kwargs):
+            return SimpleNamespace()
+
+    class Storage:
+        def from_(self, _bucket):
+            return StorageBucket()
+
+    class Client:
+        storage = Storage()
+
+        def table(self, table):
+            return Query(table)
+
+    service = EvidenceAnalysisService(Client())
+    result = service.create_evidence(
+        user_id=operator_id,
+        test_id=test_id,
+        image_bytes=b"demo-image",
+        captured_at=datetime.now(timezone.utc),
+        latitude=None,
+        longitude=None,
+        gps_accuracy=None,
+        image_quality_score=80,
+        blur_score=75,
+        brightness_score=78,
+    )
+
+    assert result["test_id"] == test_id
+    assert len(result["image_sha256"]) == 64

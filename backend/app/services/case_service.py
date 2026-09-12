@@ -44,14 +44,15 @@ class CaseService:
                 self._client.table("cases")
                 .insert(payload)
                 .select("*")
-                .single()
                 .execute()
             )
         except APIError as exc:
             if getattr(exc, "code", None) == "23505":
                 raise DuplicateCaseNumberError from exc
             raise
-        return response.data
+        if not response.data:
+            raise RuntimeError("Case insert returned no row.")
+        return response.data[0] if isinstance(response.data, list) else response.data
 
     def get_case(self, user_id: str, case_id: str) -> dict[str, Any]:
         response = (
@@ -59,9 +60,8 @@ class CaseService:
             .select("*")
             .eq("id", case_id)
             .eq("created_by", user_id)
-            .maybe_single()
             .execute()
         )
-        if response.data is None:
+        if not response.data:
             raise CaseNotFoundError
-        return response.data
+        return response.data[0] if isinstance(response.data, list) else response.data

@@ -38,15 +38,14 @@ class EvidenceAnalysisService:
         blur_score: float,
         brightness_score: float,
     ) -> dict[str, Any]:
-        session = (
+        session_response = (
             self._client.table("test_sessions")
             .select("id")
             .eq("id", test_id)
             .eq("operator_id", user_id)
-            .maybe_single()
             .execute()
         )
-        if session.data is None:
+        if not session_response.data:
             raise EvidenceNotFoundError
         image_hash = hashlib.sha256(image_bytes).hexdigest()
         path = f"{user_id}/{test_id}/{uuid4()}.jpg"
@@ -73,9 +72,9 @@ class EvidenceAnalysisService:
                 "legal_label": "INDICATIVE ONLY - LABORATORY CONFIRMATION REQUIRED",
             })
             .select("*")
-            .single()
             .execute()
         )
+        created = self._first_row(response.data, "Evidence record was not created.")
         self._audit(test_id, user_id, "IMAGE_CAPTURED", {
             "image_sha256": image_hash,
             "gps_available": latitude is not None and longitude is not None,
@@ -83,7 +82,7 @@ class EvidenceAnalysisService:
         self._audit(test_id, user_id, "GPS_CAPTURED", {
             "available": latitude is not None and longitude is not None,
         })
-        return response.data
+        return created
 
     def get_owned(self, evidence_id: str, user_id: str) -> dict[str, Any]:
         response = (
@@ -91,12 +90,11 @@ class EvidenceAnalysisService:
             .select("*")
             .eq("id", evidence_id)
             .eq("operator_id", user_id)
-            .maybe_single()
             .execute()
         )
-        if response.data is None:
+        if not response.data:
             raise EvidenceNotFoundError
-        return response.data
+        return self._first_row(response.data, "Evidence record was not found.")
 
     def validate(self, evidence_id: str, user_id: str) -> dict[str, Any]:
         record = self.get_owned(evidence_id, user_id)
@@ -253,10 +251,17 @@ class EvidenceAnalysisService:
             .eq("id", evidence_id)
             .eq("operator_id", user_id)
             .select("*")
-            .single()
             .execute()
         )
-        return response.data
+        return self._first_row(response.data, "Evidence record update returned no row.")
+
+    @staticmethod
+    def _first_row(data: Any, error_message: str) -> dict[str, Any]:
+        if isinstance(data, list) and data:
+            return dict(data[0])
+        if isinstance(data, dict):
+            return data
+        raise EvidenceStateError(error_message)
 
     def _audit(self, test_id: str, user_id: str, event_type: str, event_data: dict[str, Any]) -> None:
         self._client.table("audit_events").insert({

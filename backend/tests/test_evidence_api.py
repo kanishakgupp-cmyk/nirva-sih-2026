@@ -13,11 +13,17 @@ class UnusedEvidenceService:
 
 
 def test_evidence_endpoints_require_authentication() -> None:
+    previous_auth = app.dependency_overrides.pop(get_current_user_id, None)
+    previous_service = app.dependency_overrides.get(get_evidence_service)
     app.dependency_overrides[get_evidence_service] = lambda: UnusedEvidenceService()
     try:
         response = TestClient(app).get(f"/api/v1/evidence/{uuid4()}")
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(get_evidence_service, None)
+        if previous_service is not None:
+            app.dependency_overrides[get_evidence_service] = previous_service
+        if previous_auth is not None:
+            app.dependency_overrides[get_current_user_id] = previous_auth
 
     assert response.status_code == 401
     assert response.json()["detail"] == "A bearer token is required."
@@ -39,12 +45,21 @@ def test_owned_evidence_response_preserves_capture_fields() -> None:
                 "legal_label": "INDICATIVE ONLY",
             }
 
+    previous_auth = app.dependency_overrides.get(get_current_user_id)
+    previous_service = app.dependency_overrides.get(get_evidence_service)
     app.dependency_overrides[get_current_user_id] = lambda: str(operator_id)
     app.dependency_overrides[get_evidence_service] = lambda: OwnedEvidenceService()
     try:
         response = TestClient(app).get(f"/api/v1/evidence/{evidence_id}")
     finally:
-        app.dependency_overrides.clear()
+        if previous_auth is None:
+            app.dependency_overrides.pop(get_current_user_id, None)
+        else:
+            app.dependency_overrides[get_current_user_id] = previous_auth
+        if previous_service is None:
+            app.dependency_overrides.pop(get_evidence_service, None)
+        else:
+            app.dependency_overrides[get_evidence_service] = previous_service
 
     assert response.status_code == 200
     assert response.json()["id"] == str(evidence_id)
