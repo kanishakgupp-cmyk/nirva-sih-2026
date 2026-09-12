@@ -23,6 +23,18 @@ class EvidenceRecord {
     required this.previousRecordHash,
     required this.recordHash,
     required this.signature,
+    this.evidenceStatus = 'CAPTURED',
+    this.normalizedImagePath,
+    this.analysisStatus,
+    this.analysisResult,
+    this.analysisConfidence,
+    this.analysisUncertainty,
+    this.analysisModelVersion,
+    this.analysisFeatures,
+    this.analysisExplanation,
+    this.analysisCompletedAt,
+    this.signatureAlgorithm,
+    this.keyId,
     required this.legalLabel,
     required this.createdAt,
   });
@@ -50,6 +62,18 @@ class EvidenceRecord {
   final String? previousRecordHash;
   final String? recordHash;
   final String? signature;
+  final String evidenceStatus;
+  final String? normalizedImagePath;
+  final String? analysisStatus;
+  final String? analysisResult;
+  final double? analysisConfidence;
+  final double? analysisUncertainty;
+  final String? analysisModelVersion;
+  final Map<String, dynamic>? analysisFeatures;
+  final Map<String, dynamic>? analysisExplanation;
+  final DateTime? analysisCompletedAt;
+  final String? signatureAlgorithm;
+  final String? keyId;
   final String? legalLabel;
   final DateTime createdAt;
 
@@ -78,6 +102,18 @@ class EvidenceRecord {
       previousRecordHash: map['previous_record_hash'] as String?,
       recordHash: map['record_hash'] as String?,
       signature: map['signature'] as String?,
+      evidenceStatus: map['evidence_status'] as String? ?? 'CAPTURED',
+      normalizedImagePath: map['normalized_image_path'] as String?,
+      analysisStatus: map['analysis_status'] as String?,
+      analysisResult: map['analysis_result'] as String?,
+      analysisConfidence: _double(map['analysis_confidence']),
+      analysisUncertainty: _double(map['analysis_uncertainty']),
+      analysisModelVersion: map['analysis_model_version'] as String?,
+      analysisFeatures: _map(map['analysis_features']),
+      analysisExplanation: _map(map['analysis_explanation']),
+      analysisCompletedAt: _date(map['analysis_completed_at']),
+      signatureAlgorithm: map['signature_algorithm'] as String?,
+      keyId: map['key_id'] as String?,
       legalLabel: map['legal_label'] as String?,
       createdAt:
           _date(map['created_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
@@ -93,5 +129,10 @@ class EvidenceRecord {
   static double? _double(Object? value) {
     if (value is num) return value.toDouble();
     return double.tryParse('$value');
+  }
+
+  static Map<String, dynamic>? _map(Object? value) {
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return null;
   }
 }

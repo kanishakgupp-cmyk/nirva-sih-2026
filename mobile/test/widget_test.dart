@@ -388,6 +388,28 @@ void main() {
     expect(caseItem.createdAt, DateTime.fromMillisecondsSinceEpoch(0));
   });
 
+  test('EvidenceRecord parses analysis lifecycle fields', () {
+    final record = EvidenceRecord.fromMap({
+      'id': 'evidence-1',
+      'test_id': 'test-1',
+      'operator_id': 'officer-1',
+      'evidence_status': 'ANALYZED',
+      'image_sha256': 'a' * 64,
+      'analysis_result': 'DEMO_CLASS_A',
+      'analysis_confidence': 0.86,
+      'analysis_uncertainty': 0.07,
+      'analysis_model_version': 'nirva-demo-visual-1',
+      'analysis_explanation': {'reference_card': 'Detected'},
+      'created_at': '2026-09-12T10:00:00Z',
+      'legal_label': 'INDICATIVE ONLY',
+    });
+
+    expect(record.evidenceStatus, 'ANALYZED');
+    expect(record.analysisResult, 'DEMO_CLASS_A');
+    expect(record.analysisConfidence, 0.86);
+    expect(record.analysisExplanation?['reference_card'], 'Detected');
+  });
+
   test('TestSession.fromMap parses nullable fields safely', () {
     final session = TestSession.fromMap({
       'id': 'session-1',

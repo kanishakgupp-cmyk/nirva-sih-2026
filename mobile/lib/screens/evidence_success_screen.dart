@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/case_model.dart';
 import '../models/evidence_record.dart';
 import '../models/test_session.dart';
+import 'analysis_screen.dart';
 
 class EvidenceSuccessScreen extends StatelessWidget {
   const EvidenceSuccessScreen({
@@ -56,16 +57,18 @@ class EvidenceSuccessScreen extends StatelessWidget {
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'Image analysis will be implemented in the next phase.',
-                  textAlign: TextAlign.center,
-                ),
                 const SizedBox(height: 24),
                 FilledButton(
-                  onPressed: () => Navigator.of(context).popUntil(
-                    (route) => route.isFirst,
+                  onPressed: () => Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(
+                      builder: (_) => AnalysisScreen(
+                        record: record,
+                        session: session,
+                        caseItem: caseItem,
+                      ),
+                    ),
                   ),
-                  child: const Text('Finish'),
+                  child: const Text('Review and Analyze Evidence'),
                 ),
               ],
             ),

@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/evidence_record.dart';
 import '../models/test_session.dart';
+import 'api_client.dart';
 import 'evidence_hash_service.dart';
 
 abstract interface class EvidenceService {
@@ -18,6 +19,52 @@ abstract interface class EvidenceService {
     required double sharpnessScore,
     required double brightnessScore,
   });
+}
+
+class FastApiEvidenceService implements EvidenceService {
+  FastApiEvidenceService({ApiClient? apiClient})
+      : _apiClient = apiClient ?? ApiClient();
+
+  final ApiClient _apiClient;
+
+  @override
+  Future<EvidenceRecord> createEvidenceRecord({
+    required TestSession session,
+    required Uint8List imageBytes,
+    required DateTime capturedAt,
+    required double? latitude,
+    required double? longitude,
+    required double? gpsAccuracy,
+    required double imageQualityScore,
+    required double sharpnessScore,
+    required double brightnessScore,
+  }) async {
+    try {
+      final response = await _apiClient.postMultipart(
+        '/api/v1/evidence',
+        fields: {
+          'test_id': session.id,
+          'captured_at': capturedAt.toUtc().toIso8601String(),
+          'image_quality_score': imageQualityScore.toString(),
+          'blur_score': sharpnessScore.toString(),
+          'brightness_score': brightnessScore.toString(),
+          if (latitude != null) 'latitude': latitude.toString(),
+          if (longitude != null) 'longitude': longitude.toString(),
+          if (gpsAccuracy != null) 'gps_accuracy': gpsAccuracy.toString(),
+        },
+        bytes: imageBytes,
+        filename: 'evidence.jpg',
+        contentType: 'image/jpeg',
+      );
+      return EvidenceRecord.fromMap(response);
+    } on ApiClientException catch (error) {
+      throw EvidenceServiceException(error.userMessage);
+    } catch (_) {
+      throw const EvidenceServiceException(
+        'Evidence could not be saved. Please try again.',
+      );
+    }
+  }
 }
 
 class SupabaseEvidenceService implements EvidenceService {
@@ -78,10 +125,27 @@ class SupabaseEvidenceService implements EvidenceService {
             'image_quality_score': imageQualityScore,
             'blur_score': sharpnessScore,
             'brightness_score': brightnessScore,
+            'evidence_status': 'CAPTURED',
             'legal_label': 'INDICATIVE ONLY - LABORATORY CONFIRMATION REQUIRED',
           })
           .select()
           .single();
+
+      await _client.from('audit_events').insert({
+        'test_id': session.id,
+        'operator_id': user.id,
+        'event_type': 'IMAGE_CAPTURED',
+        'event_data': {
+          'image_sha256': hash,
+          'gps_available': latitude != null && longitude != null,
+        },
+      });
+      await _client.from('audit_events').insert({
+        'test_id': session.id,
+        'operator_id': user.id,
+        'event_type': 'GPS_CAPTURED',
+        'event_data': {'available': latitude != null && longitude != null},
+      });
 
       return EvidenceRecord.fromMap(response);
     } on PostgrestException catch (_) {

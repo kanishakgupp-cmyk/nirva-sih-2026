@@ -72,4 +72,19 @@ flutter run -d chrome \
 	--dart-define=API_BASE_URL=https://your-forwarded-8000-url
 ```
 
-The phone must use the forwarded HTTPS URL, not `localhost`, because phone-localhost refers to the phone itself. The current Flutter app still authenticates directly with Supabase; only case data requests use FastAPI.
+The phone must use the forwarded HTTPS URL, not `localhost`, because phone-localhost refers to the phone itself. The current Flutter app authenticates directly with Supabase for existing capture/storage flows; case and evidence analysis requests use FastAPI.
+
+## Evidence integrity and indicative analysis
+
+Phase 8 adds authenticated endpoints for evidence owned by the JWT subject:
+
+- `GET /api/v1/evidence/{evidence_id}`
+- `POST /api/v1/evidence/{evidence_id}/validate`
+- `POST /api/v1/evidence/{evidence_id}/analyze`
+- `POST /api/v1/evidence/{evidence_id}/finalize`
+- `GET /api/v1/evidence/{evidence_id}/audit`
+- `GET /api/v1/evidence/{evidence_id}/integrity`
+
+Validation and analysis are generic visual demonstrations. Results such as `DEMO_CLASS_A` and `DEMO_CLASS_B` are indicative only and require laboratory confirmation. The backend stores deterministic feature metadata, a model version, confidence and uncertainty, and enforces the evidence lifecycle `CAPTURED -> VALIDATING -> ANALYZED -> FINALIZED` (or `INVALID`).
+
+Record hashes use canonical JSON with sorted keys and compact separators, followed by `|` and the previous record hash, then SHA-256. Private signing keys are never stored in Supabase; Flutter Web exposes only a demonstration signature boundary.

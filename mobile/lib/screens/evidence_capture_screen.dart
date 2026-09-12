@@ -56,7 +56,7 @@ class _EvidenceCaptureScreenState extends State<EvidenceCaptureScreen> {
   void initState() {
     super.initState();
     _cameraService = widget.cameraService ?? CameraService();
-    _evidenceService = widget.evidenceService ?? SupabaseEvidenceService();
+    _evidenceService = widget.evidenceService ?? FastApiEvidenceService();
     _initializeCamera();
   }
 

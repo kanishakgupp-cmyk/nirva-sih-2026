@@ -83,6 +83,48 @@ class ApiClient {
     }
   }
 
+  Future<Map<String, dynamic>> postMultipart(
+    String path, {
+    required Map<String, String> fields,
+    required Uint8List bytes,
+    required String filename,
+    required String contentType,
+  }) async {
+    final uri = buildUri(path);
+    final response = await _send(
+      method: 'POST',
+      uri: uri,
+      request: () async {
+        final mediaParts = contentType.split('/');
+        final request = http.MultipartRequest('POST', uri)
+          ..headers.addAll(_headers)
+          ..fields.addAll(fields)
+          ..files.add(
+            http.MultipartFile.fromBytes(
+              'image',
+              bytes,
+              filename: filename,
+              contentType: http.MediaType(
+                mediaParts.first,
+                mediaParts.length > 1 ? mediaParts[1] : 'octet-stream',
+              ),
+            ),
+          );
+        return http.Response.fromStream(await request.send());
+      },
+    );
+    try {
+      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    } on Object catch (error) {
+      _log('POST ${_safeUri(uri)} invalid JSON response: ${error.runtimeType}');
+      throw ApiClientException(
+        'The server returned an invalid response (HTTP ${response.statusCode}).',
+        statusCode: response.statusCode,
+        category: ApiErrorCategory.invalidResponse,
+      );
+    }
+  }
+
   Future<Map<String, dynamic>> getObject(String path) async {
     final uri = buildUri(path);
     final response = await _send(

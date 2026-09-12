@@ -36,3 +36,7 @@ The migration at `supabase/migrations/001_initial_schema.sql` is intended to be 
 Do not run this migration from Flutter. The migration creates the initial tables, indexes, Row Level Security policies, and one safe demo kit. Applying it remotely requires access to the Supabase project and appropriate administrative credentials; those credentials must not be stored in this repository or shipped to clients.
 
 After applying it, verify the tables and policies in the Supabase Dashboard. The Flutter client is intentionally limited to the policies defined in the migration and cannot modify kit records.
+
+## Phase 8 migration
+
+Apply `migrations/005_evidence_integrity_analysis.sql` after the existing migrations. It adds evidence lifecycle, calibration, indicative analysis, hash-chain, and signature metadata. The migration does not add secrets or private keys. Evidence remains in the private `evidence` bucket, and finalized records cannot be updated through the client policy.
