@@ -12,7 +12,22 @@ class SupervisorReviewStateError(Exception):
     pass
 
 
+class SupervisorReasonRequiredError(Exception):
+    """Raised when a flag/return review action omits its mandatory reason."""
+
+
 class SupervisorService:
+    # Supervisor review operates on hash-chained, finalized evidence only.
+    REVIEWABLE_EVIDENCE_STATUS = "FINALIZED"
+    REASON_REQUIRED_ACTIONS = {"FLAG", "RETURN"}
+    REVIEW_TRANSITIONS = {
+        "PENDING": {"APPROVE": "APPROVED", "FLAG": "FLAGGED", "RETURN": "RETURNED"},
+        "RETURNED": {"APPROVE": "APPROVED", "FLAG": "FLAGGED"},
+        "FLAGGED": {"APPROVE": "APPROVED", "RETURN": "RETURNED"},
+    }
+    # PostgREST filter separators and wildcards that must not be injected by search input.
+    _SEARCH_UNSAFE_CHARACTERS = (",", "(", ")", "*", "\\", '"', "'", "{", "}")
+
     def __init__(self, client: Client):
         self._client = client
 
@@ -39,7 +54,9 @@ class SupervisorService:
             query = query.eq("review_status", status)
 
         if search and search.strip():
-            clean_search = search.strip()
+            clean_search = self._sanitize_search(search)
+            if not clean_search:
+                return {"items": [], "page": page, "page_size": page_size, "total": 0}
             is_uuid = False
             try:
                 import uuid
@@ -121,17 +138,24 @@ class SupervisorService:
 
     def review(self, evidence_id: str, supervisor_id: str, action: str, reason: str | None) -> dict[str, Any]:
         record = self._record(evidence_id)
+        evidence_status = record.get("evidence_status", "CAPTURED")
+        if evidence_status != self.REVIEWABLE_EVIDENCE_STATUS:
+            raise SupervisorReviewStateError(
+                "Evidence must be finalized with an integrity hash before supervisor review."
+            )
+
         previous = record.get("review_status", "PENDING")
-        transitions = {
-            "PENDING": {"APPROVE": "APPROVED", "FLAG": "FLAGGED", "RETURN": "RETURNED"},
-            "RETURNED": {"APPROVE": "APPROVED", "FLAG": "FLAGGED"},
-            "FLAGGED": {"APPROVE": "APPROVED", "RETURN": "RETURNED"},
-        }
-        new_status = transitions.get(previous, {}).get(action)
+        new_status = self.REVIEW_TRANSITIONS.get(previous, {}).get(action)
         if new_status is None:
             raise SupervisorReviewStateError(f"Evidence cannot be {action.lower()} from {previous}.")
-        now = datetime.now(timezone.utc).isoformat()
+
         cleaned_reason = reason.strip() if reason and reason.strip() else None
+        if action in self.REASON_REQUIRED_ACTIONS and not cleaned_reason:
+            raise SupervisorReasonRequiredError(
+                "A reason is required to flag or return evidence."
+            )
+
+        now = datetime.now(timezone.utc).isoformat()
         updated = self._client.table("evidence_records").update({
             "review_status": new_status, "review_reason": cleaned_reason, "reviewed_by": supervisor_id, "reviewed_at": now,
         }).eq("id", evidence_id).eq("review_status", previous).select("*").execute()
@@ -148,6 +172,14 @@ class SupervisorService:
                             "supervisor_id": supervisor_id, "timestamp": now, "reason": cleaned_reason},
         }).execute()
         return self.get_evidence(evidence_id)
+
+    @classmethod
+    def _sanitize_search(cls, search: str) -> str:
+        """Strip PostgREST filter separators so user input cannot alter the query shape."""
+        cleaned = search.strip()
+        for character in cls._SEARCH_UNSAFE_CHARACTERS:
+            cleaned = cleaned.replace(character, " ")
+        return " ".join(cleaned.split())
 
     def _record(self, evidence_id: str) -> dict[str, Any]:
         response = self._client.table("evidence_records").select("*").eq("id", evidence_id).maybe_single().execute()

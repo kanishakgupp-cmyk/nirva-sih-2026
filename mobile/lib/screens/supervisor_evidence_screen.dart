@@ -30,6 +30,20 @@ class _SupervisorEvidenceScreenState extends State<SupervisorEvidenceScreen> {
     _detail = widget.service.getEvidenceDetail(widget.evidenceId);
   }
 
+  /// Dialog titles are distinct from the pinned action labels so the review
+  /// action is unambiguous in both the UI and widget tests.
+  static String _dialogTitle(String action) {
+    switch (action) {
+      case 'FLAG':
+        return 'Flag Evidence for Review';
+      case 'RETURN':
+        return 'Return Evidence for Review';
+      case 'APPROVE':
+      default:
+        return 'Approve Evidence';
+    }
+  }
+
   Future<void> _review(String action) async {
     final isReasonRequired = action == 'FLAG' || action == 'RETURN';
     final reasonController = TextEditingController();
@@ -38,13 +52,7 @@ class _SupervisorEvidenceScreenState extends State<SupervisorEvidenceScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(
-          action == 'APPROVE'
-              ? 'Approve Evidence'
-              : action == 'FLAG'
-                  ? 'Flag Evidence'
-                  : 'Return Evidence for Review',
-        ),
+        title: Text(_dialogTitle(action)),
         content: Form(
           key: formKey,
           child: Column(
@@ -142,15 +150,13 @@ class _SupervisorEvidenceScreenState extends State<SupervisorEvidenceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Supervisor Evidence Detail'),
-      ),
-      body: FutureBuilder<SupervisorEvidenceDetail>(
-        future: _detail,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(
+    return FutureBuilder<SupervisorEvidenceDetail>(
+      future: _detail,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Supervisor Evidence Detail')),
+            body: Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
                 child: Column(
@@ -167,22 +173,40 @@ class _SupervisorEvidenceScreenState extends State<SupervisorEvidenceScreen> {
                   ],
                 ),
               ),
-            );
-          }
+            ),
+          );
+        }
 
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
+        final item = snapshot.data;
 
-          final item = snapshot.data!;
-          final statusColor = _statusColor(item.reviewStatus);
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Supervisor Evidence Detail'),
+          ),
+          body: item == null
+              ? const Center(child: CircularProgressIndicator())
+              : _detailBody(item),
+          // Review actions stay pinned so they are always reachable without
+          // scrolling through the evidence record.
+          bottomNavigationBar: item != null && item.reviewStatus != 'APPROVED'
+              ? _reviewActionBar(item)
+              : null,
+        );
+      },
+    );
+  }
 
-          return Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 820),
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
+  Widget _detailBody(SupervisorEvidenceDetail item) {
+    final statusColor = _statusColor(item.reviewStatus);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 820),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
@@ -208,7 +232,7 @@ class _SupervisorEvidenceScreenState extends State<SupervisorEvidenceScreen> {
                                   ),
                                 ),
                                 side: BorderSide(color: statusColor),
-                                backgroundColor: statusColor.withOpacity(0.08),
+                                backgroundColor: statusColor.withValues(alpha: 0.08),
                               ),
                             ],
                           ),
@@ -267,9 +291,9 @@ class _SupervisorEvidenceScreenState extends State<SupervisorEvidenceScreen> {
 
                   if (item.reviewReason != null && item.reviewReason!.isNotEmpty) ...[
                     Card(
-                      color: statusColor.withOpacity(0.05),
+                      color: statusColor.withValues(alpha: 0.05),
                       shape: RoundedRectangleBorder(
-                        side: BorderSide(color: statusColor.withOpacity(0.4)),
+                        side: BorderSide(color: statusColor.withValues(alpha: 0.4)),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Padding(
@@ -356,9 +380,9 @@ class _SupervisorEvidenceScreenState extends State<SupervisorEvidenceScreen> {
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.errorContainer.withOpacity(0.3),
+                      color: Theme.of(context).colorScheme.errorContainer.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Theme.of(context).colorScheme.error.withOpacity(0.5)),
+                      border: Border.all(color: Theme.of(context).colorScheme.error.withValues(alpha: 0.5)),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -381,88 +405,7 @@ class _SupervisorEvidenceScreenState extends State<SupervisorEvidenceScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  if (item.reviewStatus != 'APPROVED') ...[
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Supervisor Review Actions',
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                            ),
-                            const SizedBox(height: 4),
-                            const Text(
-                              'Select an action to update this evidence record and record an audit event.',
-                              style: TextStyle(fontSize: 12),
-                            ),
-                            const SizedBox(height: 16),
-                            LayoutBuilder(
-                              builder: (context, constraints) {
-                                final isNarrow = constraints.maxWidth < 500;
-                                final buttons = [
-                                  FilledButton.icon(
-                                    onPressed: () => _review('APPROVE'),
-                                    icon: const Icon(Icons.check_circle_outline),
-                                    label: const Text('Approve'),
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: Colors.green.shade700,
-                                      foregroundColor: Colors.white,
-                                    ),
-                                  ),
-                                  OutlinedButton.icon(
-                                    onPressed: () => _review('FLAG'),
-                                    icon: const Icon(Icons.flag_outlined),
-                                    label: const Text('Flag Evidence'),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.orange.shade900,
-                                      side: BorderSide(color: Colors.orange.shade800),
-                                    ),
-                                  ),
-                                  OutlinedButton.icon(
-                                    onPressed: () => _review('RETURN'),
-                                    icon: const Icon(Icons.assignment_return_outlined),
-                                    label: const Text('Return for Review'),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.deepOrange.shade900,
-                                      side: BorderSide(color: Colors.deepOrange.shade800),
-                                    ),
-                                  ),
-                                ];
-
-                                if (isNarrow) {
-                                  return Column(
-                                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                                    children: [
-                                      buttons[0],
-                                      const SizedBox(height: 8),
-                                      buttons[1],
-                                      const SizedBox(height: 8),
-                                      buttons[2],
-                                    ],
-                                  );
-                                }
-
-                                return Row(
-                                  children: [
-                                    Expanded(child: buttons[0]),
-                                    const SizedBox(width: 8),
-                                    Expanded(child: buttons[1]),
-                                    const SizedBox(width: 8),
-                                    Expanded(child: buttons[2]),
-                                  ],
-                                );
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                  ] else ...[
+                  if (item.reviewStatus == 'APPROVED') ...[
                     Card(
                       color: Colors.green.shade50,
                       child: const Padding(
@@ -530,8 +473,87 @@ class _SupervisorEvidenceScreenState extends State<SupervisorEvidenceScreen> {
                 ],
               ),
             ),
-          );
-        },
+          ),
+        );
+  }
+
+  Widget _reviewActionBar(SupervisorEvidenceDetail item) {
+    final buttons = [
+      FilledButton.icon(
+        onPressed: () => _review('APPROVE'),
+        icon: const Icon(Icons.check_circle_outline),
+        label: const Text('Approve'),
+        style: FilledButton.styleFrom(
+          backgroundColor: Colors.green.shade700,
+          foregroundColor: Colors.white,
+        ),
+      ),
+      OutlinedButton.icon(
+        onPressed: () => _review('FLAG'),
+        icon: const Icon(Icons.flag_outlined),
+        label: const Text('Flag Evidence'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.orange.shade900,
+          side: BorderSide(color: Colors.orange.shade800),
+        ),
+      ),
+      OutlinedButton.icon(
+        onPressed: () => _review('RETURN'),
+        icon: const Icon(Icons.assignment_return_outlined),
+        label: const Text('Return for Review'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.deepOrange.shade900,
+          side: BorderSide(color: Colors.deepOrange.shade800),
+        ),
+      ),
+    ];
+
+    return Material(
+      elevation: 8,
+      color: Theme.of(context).colorScheme.surface,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Supervisor Review Actions',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  if (constraints.maxWidth < 520) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        buttons[0],
+                        const SizedBox(height: 8),
+                        buttons[1],
+                        const SizedBox(height: 8),
+                        buttons[2],
+                      ],
+                    );
+                  }
+                  return Row(
+                    children: [
+                      Expanded(child: buttons[0]),
+                      const SizedBox(width: 8),
+                      Expanded(child: buttons[1]),
+                      const SizedBox(width: 8),
+                      Expanded(child: buttons[2]),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

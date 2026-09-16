@@ -161,13 +161,15 @@ class _SupervisorDashboardScreenState extends State<SupervisorDashboardScreen> {
                     child: Center(child: Text('No evidence matches this review queue.')),
                   );
                 }
+                final items = snapshot.data!;
                 return Column(
-                  children: snapshot.data!.map((item) {
-                    final statusColor = _statusColor(context, item.reviewStatus);
-                    return Card(
+                  children: [
+                    ...items.map((item) {
+                      final statusColor = _statusColor(context, item.reviewStatus);
+                      return Card(
                       child: ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: statusColor.withOpacity(0.15),
+                          backgroundColor: statusColor.withValues(alpha: 0.15),
                           child: Icon(_statusIcon(item.reviewStatus), color: statusColor, size: 20),
                         ),
                         title: Text(
@@ -221,7 +223,18 @@ class _SupervisorDashboardScreenState extends State<SupervisorDashboardScreen> {
                         },
                       ),
                     );
-                  }).toList(),
+                  }),
+                    if (items.length >= supervisorEvidencePageSize)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Text(
+                          'Showing the first $supervisorEvidencePageSize records. '
+                          'Refine the search to narrow the review queue.',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                  ],
                 );
               },
             ),
@@ -269,7 +282,7 @@ class _Metric extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-        width: 155,
+        width: 168,
         child: Card(
           child: Padding(
             padding: const EdgeInsets.all(14),
@@ -279,7 +292,15 @@ class _Metric extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(label, style: Theme.of(context).textTheme.bodyMedium),
+                    Flexible(
+                      child: Text(
+                        label,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
                     Icon(icon, size: 18, color: color ?? Theme.of(context).colorScheme.primary),
                   ],
                 ),

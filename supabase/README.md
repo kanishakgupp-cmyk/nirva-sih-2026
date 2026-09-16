@@ -37,6 +37,28 @@ Do not run this migration from Flutter. The migration creates the initial tables
 
 After applying it, verify the tables and policies in the Supabase Dashboard. The Flutter client is intentionally limited to the policies defined in the migration and cannot modify kit records.
 
+## Phase 9 supervisor migrations and verified live status
+
+Supervisor review (Phase 9) requires two forward-only migrations, applied in order by an authorized project administrator:
+
+1. `migrations/006_supervisor_review.sql` — adds `review_status`, `review_reason`, `reviewed_by`, `reviewed_at`, the review-status check constraint, and a review index.
+2. `migrations/007_supervisor_hardening.sql` — drops `NOT NULL` from `test_sessions.kit_id` (a kit is attached after verification), allows the explicit `EXPIRED` kit status, stops `anon`/`authenticated` writes to the supervisor review fields, makes `FINALIZED` evidence rows immutable except for review metadata, and requires a review reason for `FLAGGED`/`RETURNED`.
+
+Applying `007` is safe for existing prototype data: the review-reason check is added as `NOT VALID`, so pre-existing rows are left untouched while every new write is enforced.
+
+Live schema inspection of the current project (read-only, service-role) shows:
+
+- migrations `001`–`005` are applied (`evidence_status`, indicative analysis columns, hash-chain and signature metadata exist);
+- migration `006` is **not applied yet**: `evidence_records.review_status` does not exist. Until it is applied the supervisor endpoints answer `HTTP 503` with the migration name to run, instead of a generic server error;
+- the private `evidence` storage bucket exists and is not public;
+- no `SUPERVISOR`/`ADMIN` profile exists yet, so supervisor sign-in cannot be exercised until an administrator grants the role.
+
+Granting the supervisor role is an administrative action performed with the server-side credentials, never from Flutter:
+
+```sql
+update public.profiles set role = 'SUPERVISOR' where id = '<auth-user-uuid>';
+```
+
 ## Phase 8 migration
 
 Apply `migrations/005_evidence_integrity_analysis.sql` after the existing migrations. It adds evidence lifecycle, calibration, indicative analysis, hash-chain, and signature metadata. The migration does not add secrets or private keys. Evidence remains in the private `evidence` bucket, and finalized records cannot be updated through the client policy.

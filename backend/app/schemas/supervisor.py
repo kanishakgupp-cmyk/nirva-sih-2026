@@ -70,3 +70,4 @@ class SupervisorEvidenceDetail(SupervisorEvidenceSummary):
 
 class SupervisorReviewAction(BaseModel):
     reason: str | None = Field(default=None, max_length=1000)
+    action: str | None = Field(default=None, max_length=20)

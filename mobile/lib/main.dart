@@ -93,43 +93,105 @@ class NirvaApp extends StatelessWidget {
   }
 }
 
-class AuthGate extends StatelessWidget {
-  const AuthGate({required this.authService, super.key});
+class AuthGate extends StatefulWidget {
+  const AuthGate({
+    required this.authService,
+    this.supervisorService,
+    super.key,
+  });
 
   final AuthService authService;
+
+  /// Injectable for tests; created lazily for the authenticated supervisor shell.
+  final SupervisorService? supervisorService;
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  Future<Profile?>? _profileFuture;
+  String? _profileUserId;
+  SupervisorService? _supervisorService;
+
+  SupervisorService get _resolvedSupervisorService =>
+      _supervisorService ??= widget.supervisorService ?? FastApiSupervisorService();
+
+  @override
+  void initState() {
+    super.initState();
+    _syncProfileFuture();
+  }
+
+  /// Reuse the in-flight/completed profile lookup so stream rebuilds do not
+  /// replace the future and flash a loading indicator.
+  void _syncProfileFuture() {
+    final user = widget.authService.currentUser;
+    if (user == null) {
+      _profileForReset();
+      return;
+    }
+    if (_profileUserId == user.id && _profileFuture != null) return;
+    _profileUserId = user.id;
+    _profileFuture = widget.authService.getCurrentProfile();
+  }
+
+  void _profileForReset() {
+    _profileUserId = null;
+    _profileFuture = null;
+  }
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<AuthState>(
-      stream: authService.authStateChanges,
+      stream: widget.authService.authStateChanges,
       builder: (context, snapshot) {
-        if (authService.currentSession == null) {
-          return LoginScreen(authService: authService);
+        // Session restoration is still resolving: show a stable loading state
+        // instead of briefly rendering the login screen.
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            widget.authService.currentSession == null) {
+          return const _AuthLoadingScreen();
         }
 
+        if (widget.authService.currentSession == null) {
+          _profileForReset();
+          return LoginScreen(authService: widget.authService);
+        }
+
+        _syncProfileFuture();
+
         return FutureBuilder<Profile?>(
-          future: authService.getCurrentProfile(),
+          future: _profileFuture,
           builder: (context, profileSnapshot) {
             if (profileSnapshot.connectionState == ConnectionState.waiting) {
-              return const Scaffold(
-                body: Center(
-                  child: CircularProgressIndicator(),
-                ),
-              );
+              return const _AuthLoadingScreen();
             }
 
             final profile = profileSnapshot.data;
             if (profile?.role == ProfileRole.supervisor ||
                 profile?.role == ProfileRole.admin) {
               return SupervisorDashboardScreen(
-                service: FastApiSupervisorService(),
-                authService: authService,
+                service: _resolvedSupervisorService,
+                authService: widget.authService,
               );
             }
-            return HomeScreen(authService: authService);
+            return HomeScreen(authService: widget.authService);
           },
         );
       },
+    );
+  }
+}
+
+class _AuthLoadingScreen extends StatelessWidget {
+  const _AuthLoadingScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: CircularProgressIndicator(),
+      ),
     );
   }
 }

@@ -18,6 +18,11 @@ def _raise_invalid_token() -> None:
     )
 
 
+# Supabase asymmetric signing keys are ECC (ES256) or RSA (RS256).
+# Symmetric HS256 is deliberately excluded from the JWKS path.
+JWKS_ALGORITHMS = ["ES256", "RS256"]
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
     settings: Settings = Depends(get_settings),
@@ -44,7 +49,7 @@ def get_current_user(
             return jwt.decode(
                 token,
                 signing_key.key,
-                algorithms=["ES256"],
+                algorithms=JWKS_ALGORITHMS,
                 audience=settings.supabase_jwt_audience,
                 issuer=issuer,
                 options={"require": ["sub", "aud", "exp", "iss"]},

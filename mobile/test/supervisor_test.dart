@@ -120,12 +120,12 @@ class MockSupervisorService implements SupervisorService {
 
   @override
   Future<List<SupervisorEvidenceSummary>> getEvidence({
-    String status = 'ALL',
-    String search = '',
+    String? status,
+    String? search,
   }) async {
     if (throwEvidenceError) throw Exception('Evidence queue failure');
-    lastFilterStatus = status;
-    lastSearchQuery = search;
+    lastFilterStatus = status ?? 'ALL';
+    lastSearchQuery = search ?? '';
     return evidenceList;
   }
 
@@ -362,7 +362,7 @@ void main() {
         }),
       );
 
-      final service = FastApiSupervisorService(client: client);
+      final service = FastApiSupervisorService(apiClient: client);
       final result = await service.review('evidence-1', 'FLAG', reason: 'Blurry test zone');
 
       expect(result.reviewStatus, 'FLAGGED');
@@ -401,7 +401,7 @@ void main() {
         }),
       );
 
-      final service = FastApiSupervisorService(client: client);
+      final service = FastApiSupervisorService(apiClient: client);
       await service.review('evidence-1', 'APPROVE');
 
       expect(capturedBody, isNotNull);

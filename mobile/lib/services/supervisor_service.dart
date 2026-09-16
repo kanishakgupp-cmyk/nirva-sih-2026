@@ -1,6 +1,9 @@
 import '../models/supervisor_models.dart';
 import 'api_client.dart';
 
+/// Server-side pagination page size used by the supervisor evidence queue.
+const int supervisorEvidencePageSize = 50;
+
 abstract interface class SupervisorService {
   Future<SupervisorOverview> getOverview();
   Future<List<SupervisorEvidenceSummary>> getEvidence({String? status, String? search});
@@ -20,7 +23,10 @@ class FastApiSupervisorService implements SupervisorService {
 
   @override
   Future<List<SupervisorEvidenceSummary>> getEvidence({String? status, String? search}) async {
-    final query = <String, String>{'page': '1', 'page_size': '50'};
+    final query = <String, String>{
+      'page': '1',
+      'page_size': '$supervisorEvidencePageSize',
+    };
     if (status != null && status != 'ALL') query['status'] = status;
     if (search != null && search.isNotEmpty) query['search'] = search;
     final path = Uri(path: '/api/v1/supervisor/evidence', queryParameters: query).toString();
@@ -38,13 +44,14 @@ class FastApiSupervisorService implements SupervisorService {
 
   @override
   Future<SupervisorEvidenceDetail> review(String evidenceId, String action, {String? reason}) async {
-    final body = <String, dynamic>{};
+    final normalizedAction = action.trim().toUpperCase();
+    final body = <String, dynamic>{'action': normalizedAction};
     if (reason != null && reason.trim().isNotEmpty) {
       body['reason'] = reason.trim();
     }
     return SupervisorEvidenceDetail.fromMap(
       await _apiClient.post(
-        '/api/v1/supervisor/evidence/$evidenceId/$action',
+        '/api/v1/supervisor/evidence/$evidenceId/$normalizedAction',
         body,
       ),
     );

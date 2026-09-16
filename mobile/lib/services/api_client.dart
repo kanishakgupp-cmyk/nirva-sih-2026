@@ -13,14 +13,19 @@ class ApiClient {
   })  : _baseUrl = (baseUrl ?? const String.fromEnvironment('API_BASE_URL'))
             .trim()
             .replaceAll(RegExp(r'/+$'), ''),
-        _supabaseClient = supabaseClient ?? Supabase.instance.client,
+        _supabaseClient = supabaseClient,
         _httpClient = httpClient ?? http.Client(),
         _accessToken = accessToken;
 
   final String _baseUrl;
-  final SupabaseClient _supabaseClient;
+  final SupabaseClient? _supabaseClient;
   final http.Client _httpClient;
   final String? _accessToken;
+
+  /// Resolved on demand: constructing an [ApiClient] must never require the
+  /// Supabase instance to be initialized (widget construction happens before
+  /// the first authenticated API call).
+  SupabaseClient get _supabase => _supabaseClient ?? Supabase.instance.client;
 
   String get safeEndpointDescription {
     final uri = Uri.tryParse(_baseUrl);
@@ -33,9 +38,13 @@ class ApiClient {
   }
 
   bool get hasAccessToken {
-    final token =
-        _accessToken ?? _supabaseClient.auth.currentSession?.accessToken;
-    return token != null && token.isNotEmpty;
+    try {
+      final token =
+          _accessToken ?? _supabase.auth.currentSession?.accessToken;
+      return token != null && token.isNotEmpty;
+    } on Object {
+      return false;
+    }
   }
 
   Future<List<dynamic>> getList(String path) async {
@@ -160,8 +169,13 @@ class ApiClient {
   }
 
   Map<String, String> get _headers {
-    final token =
-        _accessToken ?? _supabaseClient.auth.currentSession?.accessToken;
+    String? token;
+    try {
+      token = _accessToken ?? _supabase.auth.currentSession?.accessToken;
+    } on Object {
+      // Unavailable Supabase session surfaces as the typed auth error below.
+      token = _accessToken;
+    }
     if (token == null || token.isEmpty) {
       throw const ApiClientException(
         'Please sign in before using the API.',

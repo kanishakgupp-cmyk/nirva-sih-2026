@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from postgrest.exceptions import APIError
 
 from app.api.v1.supervisor import get_supervisor_service
 from app.core.auth import get_current_user_id, require_supervisor
@@ -12,6 +13,7 @@ from app.main import app
 from app.schemas.supervisor import SupervisorOverview
 from app.services.supervisor_service import (
     SupervisorEvidenceNotFoundError,
+    SupervisorReasonRequiredError,
     SupervisorReviewStateError,
     SupervisorService,
 )
@@ -407,3 +409,199 @@ def test_supervisor_service_review_state_machine() -> None:
     # 4. APPROVED -> invalid transition
     with pytest.raises(SupervisorReviewStateError):
         service.review(evidence_id, supervisor_id, "FLAG", "Cannot flag approved")
+class StrictSupervisorService:
+    """Server-side enforcement double used for API contract tests."""
+
+    def review(self, evidence_id: str, supervisor_id: str, action: str, reason: str | None) -> dict:
+        if action in {"FLAG", "RETURN"} and not (reason and reason.strip()):
+            raise SupervisorReasonRequiredError(
+                "A reason is required to flag or return evidence."
+            )
+        raise SupervisorReviewStateError(
+            "Evidence must be finalized with an integrity hash before supervisor review."
+        )
+
+
+def _override_supervisor():
+    app.dependency_overrides[require_supervisor] = lambda: str(uuid4())
+    app.dependency_overrides[get_supervisor_service] = lambda: StrictSupervisorService()
+    return TestClient(app)
+
+
+def test_supervisor_flag_requires_reason() -> None:
+    client = _override_supervisor()
+    try:
+        response = client.post(
+            f"/api/v1/supervisor/evidence/{uuid4()}/flag", json={"action": "FLAG"}
+        )
+        assert response.status_code == 422
+        assert response.json()["detail"] == "A reason is required to flag or return evidence."
+
+        response = client.post(
+            f"/api/v1/supervisor/evidence/{uuid4()}/flag", json={"reason": "   "}
+        )
+        assert response.status_code == 422
+    finally:
+        app.dependency_overrides.pop(require_supervisor, None)
+        app.dependency_overrides.pop(get_supervisor_service, None)
+
+
+def test_supervisor_return_requires_reason() -> None:
+    client = _override_supervisor()
+    try:
+        response = client.post(f"/api/v1/supervisor/evidence/{uuid4()}/return", json={})
+        assert response.status_code == 422
+        assert response.json()["detail"] == "A reason is required to flag or return evidence."
+    finally:
+        app.dependency_overrides.pop(require_supervisor, None)
+        app.dependency_overrides.pop(get_supervisor_service, None)
+
+
+def test_supervisor_review_requires_finalized_evidence() -> None:
+    client = _override_supervisor()
+    try:
+        response = client.post(f"/api/v1/supervisor/evidence/{uuid4()}/approve", json={})
+        assert response.status_code == 409
+        assert "finalized" in response.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.pop(require_supervisor, None)
+        app.dependency_overrides.pop(get_supervisor_service, None)
+
+
+def test_supervisor_review_action_mismatch_rejected(supervisor_user_id, sample_evidence) -> None:
+    fake_service = FakeSupervisorService(dict(sample_evidence))
+    app.dependency_overrides[require_supervisor] = lambda: supervisor_user_id
+    app.dependency_overrides[get_supervisor_service] = lambda: fake_service
+    client = TestClient(app)
+
+    try:
+        response = client.post(
+            f"/api/v1/supervisor/evidence/{sample_evidence['id']}/approve",
+            json={"action": "FLAG", "reason": "Wrong endpoint"},
+        )
+        assert response.status_code == 422
+        assert fake_service.last_action is None
+    finally:
+        app.dependency_overrides.pop(require_supervisor, None)
+        app.dependency_overrides.pop(get_supervisor_service, None)
+
+
+def test_supervisor_overview_reports_missing_schema(supervisor_user_id) -> None:
+    """Migration 006 not applied should surface as an actionable 503, not a 500."""
+
+    class MissingSchemaService:
+        def overview(self):
+            raise APIError(
+                {"message": 'column evidence_records.review_status does not exist',
+                 "code": "42703", "details": None, "hint": None}
+            )
+
+    app.dependency_overrides[require_supervisor] = lambda: supervisor_user_id
+    app.dependency_overrides[get_supervisor_service] = lambda: MissingSchemaService()
+    client = TestClient(app)
+
+    try:
+        response = client.get("/api/v1/supervisor/overview")
+        assert response.status_code == 503
+        assert "006_supervisor_review.sql" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.pop(require_supervisor, None)
+        app.dependency_overrides.pop(get_supervisor_service, None)
+
+
+def test_supervisor_search_input_is_sanitized() -> None:
+    assert SupervisorService._sanitize_search("CASE-001,review_status.eq.APPROVED") == (
+        "CASE-001 review_status.eq.APPROVED"
+    )
+    assert SupervisorService._sanitize_search("  ((NIRVA-TEST-1))  ") == "NIRVA-TEST-1"
+    assert SupervisorService._sanitize_search(",,,") == ""
+
+def _service_with_record(record: dict) -> SupervisorService:
+    audit_log: list[dict] = []
+
+    class MockQuery:
+        def __init__(self, table: str):
+            self.table = table
+
+        def select(self, *_args, **_kwargs):
+            return self
+
+        def eq(self, *_args, **_kwargs):
+            return self
+
+        def order(self, *_args, **_kwargs):
+            return self
+
+        def maybe_single(self):
+            return self
+
+        def update(self, payload):
+            record.update(payload)
+            return self
+
+        def insert(self, payload):
+            audit_log.append(payload)
+            return self
+
+        def execute(self):
+            if self.table == "evidence_records":
+                return SimpleNamespace(data=[record])
+            if self.table == "test_sessions":
+                return SimpleNamespace(data={"test_number": "NIRVA-TEST-001", "case_id": "case-1"})
+            if self.table == "cases":
+                return SimpleNamespace(data={"case_number": "CASE-001"})
+            if self.table == "profiles":
+                return SimpleNamespace(data={"display_name": "Test Officer"})
+            return SimpleNamespace(data=audit_log)
+
+    class MockClient:
+        def table(self, table_name: str):
+            return MockQuery(table_name)
+
+    return SupervisorService(MockClient())
+
+
+def _finalized_record(evidence_status: str = "FINALIZED") -> dict:
+    return {
+        "id": str(uuid4()),
+        "test_id": str(uuid4()),
+        "operator_id": str(uuid4()),
+        "review_status": "PENDING",
+        "review_reason": None,
+        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "evidence_status": evidence_status,
+    }
+
+
+def test_supervisor_service_flag_without_reason_is_rejected() -> None:
+    record = _finalized_record()
+    service = _service_with_record(record)
+
+    with pytest.raises(SupervisorReasonRequiredError):
+        service.review(record["id"], str(uuid4()), "FLAG", None)
+
+    with pytest.raises(SupervisorReasonRequiredError):
+        service.review(record["id"], str(uuid4()), "RETURN", "   ")
+
+    assert record["review_status"] == "PENDING"
+
+
+def test_supervisor_service_rejects_unfinalized_evidence() -> None:
+    record = _finalized_record(evidence_status="ANALYZED")
+    service = _service_with_record(record)
+
+    with pytest.raises(SupervisorReviewStateError) as error:
+        service.review(record["id"], str(uuid4()), "APPROVE", None)
+
+    assert "finalized" in str(error.value).lower()
+    assert record["review_status"] == "PENDING"
+
+
+def test_supervisor_service_approve_keeps_optional_reason_empty() -> None:
+    record = _finalized_record()
+    service = _service_with_record(record)
+
+    result = service.review(record["id"], str(uuid4()), "APPROVE", None)
+
+    assert result["review_status"] == "APPROVED"
+    assert result["review_reason"] is None
