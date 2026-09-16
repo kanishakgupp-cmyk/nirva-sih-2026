@@ -103,7 +103,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 40),
                     Text(
-                      'Officer sign in',
+                      'NIRVA Sign In',
                       style: theme.textTheme.headlineSmall,
                     ),
                     const SizedBox(height: 20),
