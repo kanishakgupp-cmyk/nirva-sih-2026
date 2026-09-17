@@ -13,3 +13,4 @@ venv/
 
 # Local tooling
 .vscode/
+.vercel
