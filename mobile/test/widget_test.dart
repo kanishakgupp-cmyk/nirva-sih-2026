@@ -753,7 +753,6 @@ void main() {
           session: FakeTestSessionService._session,
           caseItem: sampleCase,
           kit: kit,
-          testSessionService: FakeTestSessionService(),
         ),
       ),
     );
@@ -802,7 +801,6 @@ void main() {
             status: 'ACTIVE',
             createdAt: DateTime(2026, 9, 11),
           ),
-          testSessionService: FakeTestSessionService(),
           workflowService: const FastWorkflowService(),
         ),
       ),
@@ -895,7 +893,6 @@ void main() {
             status: 'ACTIVE',
             createdAt: DateTime(2026, 9, 11),
           ),
-          testSessionService: FakeTestSessionService(),
           workflowService: const TimedWorkflowService(),
         ),
       ),

@@ -80,6 +80,19 @@ class EvidenceAnalysisService:
             .execute()
         )
         created = self._first_row(response.data, "Evidence record was not created.")
+        session_update = (
+            self._client.table("test_sessions")
+            .update({"status": "CAPTURED"})
+            .eq("id", test_id)
+            .eq("operator_id", user_id)
+            .eq("status", "RUNNING")
+            .select("id,status")
+            .execute()
+        )
+        if not session_update.data:
+            raise EvidenceStateError(
+                "The test session changed before evidence capture completed. Please retry."
+            )
         self._audit(test_id, user_id, "IMAGE_CAPTURED", {
             "image_sha256": image_hash,
             "gps_available": latitude is not None and longitude is not None,
