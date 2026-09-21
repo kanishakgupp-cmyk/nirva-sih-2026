@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from app.api.v1.evidence import get_evidence_service
 from app.core.auth import get_current_user_id
 from app.main import app
+from app.services.analysis_service import EvidenceStateError
 
 
 class UnusedEvidenceService:
@@ -64,3 +65,38 @@ def test_owned_evidence_response_preserves_capture_fields() -> None:
     assert response.status_code == 200
     assert response.json()["id"] == str(evidence_id)
     assert response.json()["test_id"] == str(test_id)
+
+
+def test_capture_state_error_is_a_conflict() -> None:
+    class StateErrorService:
+        def create_evidence(self, **_kwargs) -> dict:
+            raise EvidenceStateError("Evidence can only be captured from a RUNNING test session, not FINALIZED.")
+
+    previous_auth = app.dependency_overrides.get(get_current_user_id)
+    previous_service = app.dependency_overrides.get(get_evidence_service)
+    app.dependency_overrides[get_current_user_id] = lambda: str(uuid4())
+    app.dependency_overrides[get_evidence_service] = lambda: StateErrorService()
+    try:
+        response = TestClient(app).post(
+            "/api/v1/evidence",
+            data={
+                "test_id": str(uuid4()),
+                "captured_at": "2026-09-12T10:00:00Z",
+                "image_quality_score": "80",
+                "blur_score": "75",
+                "brightness_score": "78",
+            },
+            files={"image": ("evidence.jpg", b"demo-image", "image/jpeg")},
+        )
+    finally:
+        if previous_auth is None:
+            app.dependency_overrides.pop(get_current_user_id, None)
+        else:
+            app.dependency_overrides[get_current_user_id] = previous_auth
+        if previous_service is None:
+            app.dependency_overrides.pop(get_evidence_service, None)
+        else:
+            app.dependency_overrides[get_evidence_service] = previous_service
+
+    assert response.status_code == 409
+    assert "RUNNING" in response.json()["detail"]

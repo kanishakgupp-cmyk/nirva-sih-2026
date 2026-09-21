@@ -65,6 +65,8 @@ async def create_evidence(
         )
     except EvidenceNotFoundError:
         raise HTTPException(status_code=404, detail="Test session not found.")
+    except EvidenceStateError as error:
+        raise HTTPException(status_code=409, detail=str(error))
 
 
 @router.post("/{evidence_id}/validate", response_model=AnalysisResponse)

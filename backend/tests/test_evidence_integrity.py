@@ -68,7 +68,7 @@ def test_create_evidence_uses_execute_rows_without_singleton_methods() -> None:
 
         def execute(self):
             if self.table == "test_sessions":
-                return SimpleNamespace(data=[{"id": test_id}])
+                return SimpleNamespace(data=[{"id": test_id, "status": "RUNNING"}])
             if self.table == "evidence_records":
                 return SimpleNamespace(data=[{
                     "id": str(uuid4()),
@@ -109,3 +109,36 @@ def test_create_evidence_uses_execute_rows_without_singleton_methods() -> None:
 
     assert result["test_id"] == test_id
     assert len(result["image_sha256"]) == 64
+
+
+def test_capture_rejects_non_running_session() -> None:
+    test_id = str(uuid4())
+    operator_id = str(uuid4())
+
+    class Query:
+        def select(self, *_args):
+            return self
+
+        def eq(self, *_args):
+            return self
+
+        def execute(self):
+            return SimpleNamespace(data=[{"id": test_id, "status": "FINALIZED"}])
+
+    class Client:
+        def table(self, _table):
+            return Query()
+
+    with pytest.raises(Exception, match="RUNNING"):
+        EvidenceAnalysisService(Client()).create_evidence(
+            user_id=operator_id,
+            test_id=test_id,
+            image_bytes=b"demo-image",
+            captured_at=datetime.now(timezone.utc),
+            latitude=12.3,
+            longitude=45.6,
+            gps_accuracy=4.2,
+            image_quality_score=80,
+            blur_score=75,
+            brightness_score=78,
+        )

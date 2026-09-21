@@ -3,6 +3,8 @@ from typing import Any
 
 from supabase import Client
 
+from app.services.evidence_integrity_service import EvidenceIntegrityService
+
 
 class SupervisorEvidenceNotFoundError(Exception):
     pass
@@ -30,6 +32,7 @@ class SupervisorService:
 
     def __init__(self, client: Client):
         self._client = client
+        self._integrity = EvidenceIntegrityService()
 
     def overview(self) -> dict[str, int]:
         return {
@@ -154,6 +157,11 @@ class SupervisorService:
             raise SupervisorReasonRequiredError(
                 "A reason is required to flag or return evidence."
             )
+        previous_hash = self._previous_hash(record)
+        if not self._integrity.verify_record(record, previous_hash):
+            raise SupervisorReviewStateError(
+                "Evidence integrity validation failed; supervisor review is blocked."
+            )
 
         now = datetime.now(timezone.utc).isoformat()
         updated = self._client.table("evidence_records").update({
@@ -187,6 +195,21 @@ class SupervisorService:
             raise SupervisorEvidenceNotFoundError
         row_dict = response.data[0] if isinstance(response.data, list) else response.data
         return dict(row_dict)
+
+    def _previous_hash(self, record: dict[str, Any]) -> str | None:
+        created_at = record.get("created_at")
+        if not created_at:
+            return record.get("previous_record_hash")
+        response = (
+            self._client.table("evidence_records")
+            .select("record_hash,created_at")
+            .eq("test_id", record["test_id"])
+            .lt("created_at", created_at)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        return response.data[0].get("record_hash") if response.data else None
 
     def _summary(self, row: dict[str, Any]) -> dict[str, Any]:
         return {
