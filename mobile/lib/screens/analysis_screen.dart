@@ -5,6 +5,7 @@ import '../models/case_model.dart';
 import '../models/evidence_record.dart';
 import '../models/test_session.dart';
 import '../services/analysis_service.dart';
+import '../widgets/status_badge.dart';
 
 class AnalysisScreen extends StatefulWidget {
   const AnalysisScreen({
@@ -112,7 +113,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                         'Captured',
                         _record.capturedAt?.toLocal().toString() ??
                             'Unavailable'),
-                    _StatusChip(status: _record.evidenceStatus),
+                    NirvaStatusBadge(status: _record.evidenceStatus),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -182,6 +183,29 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                   title: 'Indicative analysis',
                   icon: Icons.auto_awesome_outlined,
                   children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('NIRVA DEMONSTRATION MODE',
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                  color: theme.colorScheme.primary,
+                                  fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 8),
+                          Text(_record.analysisResult ?? 'Awaiting analysis',
+                              style: theme.textTheme.headlineSmall?.copyWith(
+                                  fontWeight: FontWeight.w800)),
+                          const SizedBox(height: 4),
+                          const Text('INDICATIVE VISUAL ANALYSIS'),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
                     _DetailRow(
                         'Result', _record.analysisResult ?? 'Not analyzed'),
                     if (confidence != null) ...[
@@ -213,6 +237,53 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                 ),
                 const SizedBox(height: 12),
                 _Section(
+                  title: 'Evidence Integrity',
+                  icon: Icons.shield_outlined,
+                  children: [
+                    _DetailRow(
+                      'Integrity status',
+                      (_integrity?['status'] as String?) ?? 'Not checked',
+                    ),
+                    _DetailRow(
+                      'Image hash',
+                      _integrity?['image_hash_verified'] == null
+                          ? 'Not validated'
+                          : (_integrity!['image_hash_verified'] as bool
+                              ? 'Verified'
+                              : 'Mismatch'),
+                    ),
+                    _DetailRow(
+                      'Record hash',
+                      _integrity?['record_hash_verified'] == null
+                          ? 'Not validated'
+                          : (_integrity!['record_hash_verified'] as bool
+                              ? 'Verified'
+                              : 'Mismatch'),
+                    ),
+                    _DetailRow(
+                      'Previous record',
+                      _integrity?['previous_record_link_verified'] == null
+                          ? 'Not validated'
+                          : (_integrity!['previous_record_link_verified'] as bool
+                              ? 'Linked'
+                              : 'Broken link'),
+                    ),
+                    _DetailRow(
+                      'Digital signature',
+                      _integrity?['signature_status'] as String? ?? 'Not available',
+                    ),
+                    _DetailRow(
+                      'Chain',
+                      _integrity?['chain_verified'] == null
+                          ? 'Not checked'
+                          : (_integrity!['chain_verified'] as bool
+                              ? 'Verified'
+                              : 'Failed'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _Section(
                   title: 'Audit timeline',
                   icon: Icons.timeline,
                   children: _audit.isEmpty
@@ -220,10 +291,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                           Text('Audit events will appear after validation.')
                         ]
                       : _audit
-                          .map((event) => _DetailRow(
-                                event['event_type'] as String? ?? 'Event',
-                                event['created_at'] as String? ?? '',
-                              ))
+                          .map((event) => _AuditEvent(event: event))
                           .toList(),
                 ),
                 if (_errorMessage != null) ...[
@@ -334,14 +402,42 @@ class _DetailRow extends StatelessWidget {
       );
 }
 
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({required this.status});
+class _AuditEvent extends StatelessWidget {
+  const _AuditEvent({required this.event});
 
-  final String status;
+  final Map<String, dynamic> event;
 
   @override
-  Widget build(BuildContext context) => Align(
-        alignment: Alignment.centerLeft,
-        child: Chip(label: Text(status)),
-      );
+  Widget build(BuildContext context) {
+    final eventType = event['event_type'] as String? ?? 'EVENT';
+    final timestamp = event['created_at'] as String? ?? 'Time unavailable';
+    final icon = eventType.contains('FINAL')
+        ? Icons.lock_outline
+        : eventType.contains('ANALYSIS')
+            ? Icons.analytics_outlined
+            : eventType.contains('CAPTURE')
+                ? Icons.camera_alt_outlined
+                : Icons.check_circle_outline;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(eventType,
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text(timestamp, style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

@@ -18,6 +18,7 @@ abstract interface class EvidenceService {
     required double imageQualityScore,
     required double sharpnessScore,
     required double brightnessScore,
+    String? clientOperationId,
   });
 }
 
@@ -38,12 +39,15 @@ class FastApiEvidenceService implements EvidenceService {
     required double imageQualityScore,
     required double sharpnessScore,
     required double brightnessScore,
+    String? clientOperationId,
   }) async {
     try {
       final response = await _apiClient.postMultipart(
         '/api/v1/evidence',
         fields: {
           'test_id': session.id,
+          if (clientOperationId != null)
+            'client_operation_id': clientOperationId,
           'captured_at': capturedAt.toUtc().toIso8601String(),
           'image_quality_score': imageQualityScore.toString(),
           'blur_score': sharpnessScore.toString(),
@@ -58,7 +62,14 @@ class FastApiEvidenceService implements EvidenceService {
       );
       return EvidenceRecord.fromMap(response);
     } on ApiClientException catch (error) {
-      throw EvidenceServiceException(error.userMessage);
+      final recoverable = error.category == ApiErrorCategory.networkError ||
+          error.statusCode == 408 ||
+          error.statusCode == 429 ||
+          (error.statusCode != null && error.statusCode! >= 500);
+      throw EvidenceServiceException(
+        error.userMessage,
+        recoverable: recoverable,
+      );
     } catch (_) {
       throw const EvidenceServiceException(
         'Evidence could not be saved. Please try again.',
@@ -86,6 +97,7 @@ class SupabaseEvidenceService implements EvidenceService {
     required double imageQualityScore,
     required double sharpnessScore,
     required double brightnessScore,
+    String? clientOperationId,
   }) async {
     final user = _client.auth.currentUser;
     if (user == null) {
@@ -165,9 +177,10 @@ class SupabaseEvidenceService implements EvidenceService {
 }
 
 class EvidenceServiceException implements Exception {
-  const EvidenceServiceException(this.message);
+  const EvidenceServiceException(this.message, {this.recoverable = false});
 
   final String message;
+  final bool recoverable;
 
   @override
   String toString() => message;

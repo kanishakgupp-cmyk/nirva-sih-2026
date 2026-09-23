@@ -317,6 +317,8 @@ void main() {
         'analysis_uncertainty': 0.03,
         'model_version': 'nirva-demo-1',
         'legal_label': 'INDICATIVE ONLY - LABORATORY CONFIRMATION REQUIRED',
+        'previous_record_hash': 'previous-hash',
+        'record_hash': 'current-hash',
         'reviewed_by': 'Supervisor Sharma',
         'reviewed_at': '2026-09-12T09:00:00Z',
         'audit_history': [
@@ -327,8 +329,64 @@ void main() {
 
       expect(detail.reviewedBy, 'Supervisor Sharma');
       expect(detail.reviewReason, 'Full verification passed');
+      expect(detail.previousRecordHash, 'previous-hash');
+      expect(detail.recordHash, 'current-hash');
       expect(detail.auditHistory, hasLength(2));
       expect(detail.auditHistory[1]['event_type'], 'SUPERVISOR_REVIEW');
+    });
+
+    testWidgets('shows integrity verification state for supervisor detail', (tester) async {
+      final mockService = MockSupervisorService(
+        detail: SupervisorEvidenceDetail(
+          id: 'ev-verify',
+          testId: 'test-verify',
+          testNumber: 'NIRVA-TEST-999',
+          caseNumber: 'CASE-999',
+          operator: 'Officer Demo',
+          capturedAt: DateTime.utc(2026, 9, 12, 10, 30),
+          evidenceStatus: 'FINALIZED',
+          reviewStatus: 'PENDING',
+          reviewReason: null,
+          analysisResult: 'DEMO_CLASS_A',
+          confidence: 0.91,
+          integrityStatus: 'INTEGRITY VERIFIED',
+          finalized: true,
+          operatorId: 'op-999',
+          latitude: 12.3,
+          longitude: 45.6,
+          gpsAccuracy: 2.1,
+          imageQualityScore: 90.0,
+          blurScore: 5.2,
+          brightnessScore: 72.0,
+          imageSha256: 'abc123',
+          imageUrl: null,
+          analysisUncertainty: 0.08,
+          modelVersion: 'nirva-demo-visual-1',
+          legalLabel: 'INDICATIVE ONLY - LABORATORY CONFIRMATION REQUIRED',
+          previousRecordHash: 'prev-hash',
+          recordHash: 'current-hash',
+          reviewedBy: null,
+          reviewedAt: null,
+          auditHistory: [
+            {'event_type': 'EVIDENCE_CAPTURED', 'created_at': '2026-09-12T10:30:00Z'},
+            {'event_type': 'EVIDENCE_FINALIZED', 'created_at': '2026-09-12T10:45:00Z'},
+          ],
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SupervisorEvidenceScreen(
+            service: mockService,
+            evidenceId: 'ev-verify',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('INTEGRITY VERIFIED'), findsWidgets);
+      expect(find.text('Previous Record Hash'), findsOneWidget);
+      expect(find.text('Current Record Hash'), findsOneWidget);
     });
   });
 

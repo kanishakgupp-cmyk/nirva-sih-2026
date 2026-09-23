@@ -195,6 +195,7 @@ class FakeEvidenceService implements EvidenceService {
     required double imageQualityScore,
     required double sharpnessScore,
     required double brightnessScore,
+    String? clientOperationId,
   }) async {
     return EvidenceRecord.fromMap({
       'id': 'evidence-1',
@@ -617,11 +618,9 @@ void main() {
     expect(find.text('Welcome, Test Officer'), findsOneWidget);
     expect(find.text('OFFICER'), findsOneWidget);
     expect(find.text('Cases'), findsOneWidget);
-    expect(find.text('Start Test - Coming in next phase'), findsOneWidget);
-    expect(
-      find.text('Evidence History - Coming in next phase'),
-      findsOneWidget,
-    );
+    expect(find.text('Open Cases'), findsOneWidget);
+    expect(find.text('Start with a case'), findsOneWidget);
+    expect(find.text('Evidence integrity'), findsOneWidget);
     expect(find.byTooltip('Sign out'), findsOneWidget);
   });
 

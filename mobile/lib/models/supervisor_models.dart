@@ -113,6 +113,8 @@ class SupervisorEvidenceDetail extends SupervisorEvidenceSummary {
     required this.analysisUncertainty,
     required this.modelVersion,
     required this.legalLabel,
+    this.previousRecordHash,
+    this.recordHash,
     this.reviewedBy,
     this.reviewedAt,
     required this.auditHistory,
@@ -130,6 +132,8 @@ class SupervisorEvidenceDetail extends SupervisorEvidenceSummary {
   final double? analysisUncertainty;
   final String? modelVersion;
   final String? legalLabel;
+  final String? previousRecordHash;
+  final String? recordHash;
   final String? reviewedBy;
   final DateTime? reviewedAt;
   final List<Map<String, dynamic>> auditHistory;
@@ -162,6 +166,8 @@ class SupervisorEvidenceDetail extends SupervisorEvidenceSummary {
       analysisUncertainty: SupervisorEvidenceSummary._double(map['analysis_uncertainty']),
       modelVersion: map['model_version'] as String?,
       legalLabel: map['legal_label'] as String?,
+      previousRecordHash: map['previous_record_hash'] as String?,
+      recordHash: map['record_hash'] as String?,
       reviewedBy: map['reviewed_by'] as String?,
       reviewedAt: SupervisorEvidenceSummary._date(map['reviewed_at']),
       auditHistory: (map['audit_history'] as List<dynamic>? ?? [])

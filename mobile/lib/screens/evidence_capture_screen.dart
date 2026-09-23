@@ -11,6 +11,7 @@ import '../services/demo_image_service.dart';
 import '../services/evidence_service.dart';
 import '../services/image_quality_service.dart';
 import '../services/location_service.dart';
+import '../services/offline_sync_service.dart';
 import 'evidence_success_screen.dart';
 
 class EvidenceCaptureScreen extends StatefulWidget {
@@ -56,7 +57,8 @@ class _EvidenceCaptureScreenState extends State<EvidenceCaptureScreen> {
   void initState() {
     super.initState();
     _cameraService = widget.cameraService ?? CameraService();
-    _evidenceService = widget.evidenceService ?? FastApiEvidenceService();
+    _evidenceService =
+      widget.evidenceService ?? OfflineFirstEvidenceService();
     _initializeCamera();
   }
 

@@ -37,7 +37,19 @@ class EvidenceAnalysisService:
         image_quality_score: float,
         blur_score: float,
         brightness_score: float,
+        client_operation_id: str | None = None,
     ) -> dict[str, Any]:
+        if client_operation_id:
+            existing_response = (
+                self._client.table("evidence_records")
+                .select("*")
+                .eq("operator_id", user_id)
+                .eq("client_operation_id", client_operation_id)
+                .execute()
+            )
+            if existing_response.data:
+                return self._first_row(existing_response.data, "Evidence record was not found.")
+
         session_response = (
             self._client.table("test_sessions")
             .select("id,status")
@@ -64,6 +76,7 @@ class EvidenceAnalysisService:
             .insert({
                 "test_id": test_id,
                 "operator_id": user_id,
+                "client_operation_id": client_operation_id,
                 "captured_at": captured_at.astimezone(timezone.utc).isoformat(),
                 "latitude": latitude,
                 "longitude": longitude,
@@ -237,14 +250,22 @@ class EvidenceAnalysisService:
     def integrity(self, evidence_id: str, user_id: str) -> dict[str, Any]:
         record = self.get_owned(evidence_id, user_id)
         previous = self._previous_hash(record, user_id)
-        valid = self._integrity.verify_record(record, previous)
+        image_bytes = None
+        if record.get("image_path"):
+            image_bytes = self._read_image_bytes(record["image_path"], user_id)
+        verification = self._integrity.verification_report(record, previous, image_bytes)
         return {
             "evidence_id": record["id"],
-            "chain_valid": valid,
-            "status": "CHAIN VALID" if valid else "CHAIN INTEGRITY FAILURE",
+            "chain_valid": verification["chain_verified"],
+            "status": verification["status"],
             "previous_record_hash": previous,
             "record_hash": record.get("record_hash"),
-            "reason": None if valid else "The stored record hash does not match canonical evidence data.",
+            "reason": None if verification["chain_verified"] else "One or more integrity checks failed.",
+            "image_hash_verified": verification["image_hash_verified"],
+            "record_hash_verified": verification["record_hash_verified"],
+            "previous_record_link_verified": verification["previous_record_link_verified"],
+            "signature_verified": verification["signature_verified"],
+            "signature_status": verification["signature_status"],
         }
 
     def audit(self, evidence_id: str, user_id: str) -> list[dict[str, Any]]:
@@ -271,6 +292,17 @@ class EvidenceAnalysisService:
             .execute()
         )
         return response.data[0].get("record_hash") if response.data else None
+
+    def _read_image_bytes(self, image_path: str, user_id: str) -> bytes | None:
+        try:
+            response = self._client.storage.from_("evidence").download(image_path)
+            if hasattr(response, "read"):
+                return response.read()
+            if isinstance(response, (bytes, bytearray)):
+                return bytes(response)
+        except Exception:
+            return None
+        return None
 
     def _update(self, evidence_id: str, user_id: str, values: dict[str, Any]) -> dict[str, Any]:
         response = (
