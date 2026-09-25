@@ -31,6 +31,7 @@ import 'package:nirva/services/camera_service.dart';
 import 'package:nirva/services/case_service.dart';
 import 'package:nirva/services/evidence_service.dart';
 import 'package:nirva/services/evidence_hash_service.dart';
+import 'package:nirva/services/evidence_diagnostics.dart';
 import 'package:nirva/services/image_quality_service.dart';
 import 'package:nirva/services/kit_service.dart';
 import 'package:nirva/services/location_service.dart';
@@ -178,7 +179,9 @@ class UnavailableLocationService extends LocationService {
   const UnavailableLocationService();
 
   @override
-  Future<LocationResult> captureLocation() async {
+  Future<LocationResult> captureLocation({
+    EvidenceDiagnosticFailureCallback? onDiagnosticFailure,
+  }) async {
     return const LocationResult.unavailable(reason: 'Not available in test.');
   }
 }
@@ -486,13 +489,24 @@ void main() {
     expect(first, hasLength(64));
   });
 
-  test('image quality rejects unreadable or undersized data', () {
+  test('image quality rejects short non-image bytes before format probing', () {
     const service = ImageQualityService();
+    String? failureStage;
+    Object? failure;
 
     expect(
-      () => service.analyze(Uint8List.fromList([1, 2, 3])),
+      () => service.analyze(
+        Uint8List.fromList([1, 2, 3]),
+        onDiagnosticFailure: (report) {
+          failureStage = report.stage;
+          failure = report.error;
+        },
+      ),
       throwsA(isA<ImageQualityException>()),
     );
+    expect(failureStage, 'IMAGE_DECODE');
+    expect(failure, isA<FormatException>());
+    expect(failure, isNot(isA<RangeError>()));
   });
 
   test('low-quality valid image requests a retake', () {

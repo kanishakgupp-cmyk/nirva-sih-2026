@@ -1,7 +1,9 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'evidence_diagnostics.dart';
 
 const _queueKey = 'nirva.pending_evidence.v1';
 
@@ -103,7 +105,8 @@ class PendingEvidence {
       testId: json['test_id'] as String,
       operatorId: json['operator_id'] as String,
       sessionData: Map<String, dynamic>.from(json['session_data'] as Map),
-      imageBytes: Uint8List.fromList(base64Decode(json['image_base64'] as String)),
+      imageBytes:
+          Uint8List.fromList(base64Decode(json['image_base64'] as String)),
       imageSha256: json['image_sha256'] as String,
       capturedAt: DateTime.parse(json['captured_at'] as String),
       latitude: _double(json['latitude']),
@@ -129,22 +132,47 @@ class PendingEvidence {
 }
 
 class OfflineEvidenceQueue {
-  OfflineEvidenceQueue({SharedPreferences? preferences})
-      : _preferencesFuture = preferences == null
+  OfflineEvidenceQueue({
+    SharedPreferences? preferences,
+    EvidenceDiagnosticFailureCallback? onDiagnosticFailure,
+  })  : _onDiagnosticFailure = onDiagnosticFailure,
+        _preferencesFuture = preferences == null
             ? SharedPreferences.getInstance()
             : Future.value(preferences);
 
+  final EvidenceDiagnosticFailureCallback? _onDiagnosticFailure;
   final Future<SharedPreferences> _preferencesFuture;
 
   Future<List<PendingEvidence>> list() async {
-    final preferences = await _preferencesFuture;
-    final values = preferences.getStringList(_queueKey) ?? const <String>[];
+    logEvidenceStage('QUEUE_LOAD', 'START');
+    late final List<String> values;
+    try {
+      final preferences = await _preferencesFuture;
+      values = preferences.getStringList(_queueKey) ?? const <String>[];
+      logEvidenceStage('QUEUE_LOAD', 'SUCCESS', 'entries=${values.length}');
+    } catch (error, stackTrace) {
+      reportEvidenceFailure(
+        'QUEUE_LOAD',
+        error,
+        stackTrace,
+        onDiagnosticFailure: _onDiagnosticFailure,
+      );
+      rethrow;
+    }
+
     final items = <PendingEvidence>[];
     for (final value in values) {
       try {
         items.add(PendingEvidence.fromJson(
-            Map<String, dynamic>.from(jsonDecode(value) as Map)));
-      } on Object {
+          Map<String, dynamic>.from(jsonDecode(value) as Map),
+        ));
+      } on Object catch (error, stackTrace) {
+        reportEvidenceFailure(
+          'QUEUE_DESERIALIZATION',
+          error,
+          stackTrace,
+          onDiagnosticFailure: _onDiagnosticFailure,
+        );
         // Drop only unreadable queue entries; valid evidence remains queued.
       }
     }
@@ -155,30 +183,74 @@ class OfflineEvidenceQueue {
   Future<int> pendingCount() async => (await list()).length;
 
   Future<void> enqueue(PendingEvidence item) async {
+    logEvidenceStage(
+        'QUEUE_ENQUEUE', 'START', 'bytes=${item.imageBytes.length}');
     final items = await list();
-    if (items.any((existing) => existing.operationId == item.operationId)) return;
+    if (items.any((existing) => existing.operationId == item.operationId)) {
+      logEvidenceStage(
+          'QUEUE_ENQUEUE', 'SUCCESS', 'duplicate operation ignored');
+      return;
+    }
     await _save([...items, item]);
+    logEvidenceStage('QUEUE_ENQUEUE', 'SUCCESS');
   }
 
   Future<void> replace(PendingEvidence item) async {
+    logEvidenceStage('QUEUE_REPLACE', 'START');
     final items = await list();
     final updated = items
         .map((existing) =>
             existing.operationId == item.operationId ? item : existing)
         .toList();
     await _save(updated);
+    logEvidenceStage('QUEUE_REPLACE', 'SUCCESS');
   }
 
   Future<void> remove(String operationId) async {
+    logEvidenceStage('QUEUE_REMOVE', 'START');
     final items = await list();
-    await _save(items.where((item) => item.operationId != operationId).toList());
+    await _save(
+        items.where((item) => item.operationId != operationId).toList());
+    logEvidenceStage('QUEUE_REMOVE', 'SUCCESS');
   }
 
   Future<void> _save(List<PendingEvidence> items) async {
-    final preferences = await _preferencesFuture;
-    await preferences.setStringList(
-      _queueKey,
-      items.map((item) => jsonEncode(item.toJson())).toList(),
-    );
+    logEvidenceStage('QUEUE_SERIALIZATION', 'START', 'entries=${items.length}');
+    late final List<String> serializedItems;
+    try {
+      serializedItems = items.map((item) => jsonEncode(item.toJson())).toList();
+      final serializedLength = serializedItems.fold<int>(
+        0,
+        (length, value) => length + value.length,
+      );
+      logEvidenceStage(
+        'QUEUE_SERIALIZATION',
+        'SUCCESS',
+        'entries=${serializedItems.length} characters=$serializedLength',
+      );
+    } catch (error, stackTrace) {
+      reportEvidenceFailure(
+        'QUEUE_SERIALIZATION',
+        error,
+        stackTrace,
+        onDiagnosticFailure: _onDiagnosticFailure,
+      );
+      rethrow;
+    }
+
+    logEvidenceStage('SHARED_PREFERENCES_SAVE', 'START');
+    try {
+      final preferences = await _preferencesFuture;
+      await preferences.setStringList(_queueKey, serializedItems);
+      logEvidenceStage('SHARED_PREFERENCES_SAVE', 'SUCCESS');
+    } catch (error, stackTrace) {
+      reportEvidenceFailure(
+        'SHARED_PREFERENCES_SAVE',
+        error,
+        stackTrace,
+        onDiagnosticFailure: _onDiagnosticFailure,
+      );
+      rethrow;
+    }
   }
 }

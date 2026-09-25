@@ -4,10 +4,12 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 
 import '../models/case_model.dart';
+import '../models/evidence_record.dart';
 import '../models/kit.dart';
 import '../models/test_session.dart';
 import '../services/camera_service.dart';
 import '../services/demo_image_service.dart';
+import '../services/evidence_diagnostics.dart';
 import '../services/evidence_service.dart';
 import '../services/image_quality_service.dart';
 import '../services/location_service.dart';
@@ -45,11 +47,13 @@ class _EvidenceCaptureScreenState extends State<EvidenceCaptureScreen> {
   late final EvidenceService _evidenceService;
   CameraController? _cameraController;
   Uint8List? _imageBytes;
+  Uint8List? _diagnosticBytes;
   ImageQualityResult? _quality;
   LocationResult? _location;
   DateTime? _capturedAt;
   String? _cameraMessage;
   String? _errorMessage;
+  String? _diagnosticFailureMessage;
   bool _cameraInitializationFailed = false;
   bool _isSaving = false;
 
@@ -57,9 +61,20 @@ class _EvidenceCaptureScreenState extends State<EvidenceCaptureScreen> {
   void initState() {
     super.initState();
     _cameraService = widget.cameraService ?? CameraService();
-    _evidenceService =
-      widget.evidenceService ?? OfflineFirstEvidenceService();
+    _evidenceService = widget.evidenceService ??
+        OfflineFirstEvidenceService(
+          onDiagnosticFailure: _onDiagnosticFailure,
+        );
     _initializeCamera();
+  }
+
+  void _onDiagnosticFailure(EvidenceDiagnosticReport report) {
+    if (_diagnosticFailureMessage != null || !mounted) return;
+    final message = report.format(fallbackBytes: _diagnosticBytes);
+    setState(() {
+      _diagnosticFailureMessage = message;
+      _errorMessage = message;
+    });
   }
 
   Future<void> _initializeCamera() async {
@@ -112,12 +127,37 @@ class _EvidenceCaptureScreenState extends State<EvidenceCaptureScreen> {
 
   Future<void> _captureEvidence() async {
     try {
-      final bytes = await _cameraService.captureBytes();
+      final bytes = await _cameraService.captureBytes(
+        onDiagnosticFailure: _onDiagnosticFailure,
+      );
+      _diagnosticBytes = bytes;
+      logEvidenceStage(
+        'CAPTURE_SUCCESS',
+        'SUCCESS',
+        describeEvidenceBytes(bytes),
+      );
       await _acceptImage(bytes);
     } on CameraServiceException catch (error) {
-      setState(() => _errorMessage = error.message);
-    } catch (_) {
-      setState(() => _errorMessage = 'The image could not be captured.');
+      reportEvidenceFailure(
+        'CAPTURE',
+        error,
+        StackTrace.current,
+        onDiagnosticFailure: _onDiagnosticFailure,
+      );
+      if (mounted) {
+        setState(
+            () => _errorMessage = _diagnosticFailureMessage ?? error.message);
+      }
+    } catch (error, stackTrace) {
+      reportEvidenceFailure(
+        'CAPTURE',
+        error,
+        stackTrace,
+        onDiagnosticFailure: _onDiagnosticFailure,
+      );
+      if (mounted) {
+        setState(() => _errorMessage = _diagnosticFailureMessage);
+      }
     }
   }
 
@@ -127,8 +167,33 @@ class _EvidenceCaptureScreenState extends State<EvidenceCaptureScreen> {
 
   Future<void> _acceptImage(Uint8List bytes) async {
     try {
-      final quality = widget.qualityService.analyze(bytes);
+      _diagnosticFailureMessage = null;
+      _diagnosticBytes = bytes;
+      logEvidenceStage('ACCEPT_IMAGE', 'START', 'bytes=${bytes.length}');
+      late final ImageQualityResult quality;
+      try {
+        quality = widget.qualityService.analyze(
+          bytes,
+          onDiagnosticFailure: _onDiagnosticFailure,
+        );
+      } catch (error, stackTrace) {
+        reportEvidenceFailure(
+          'IMAGE_QUALITY',
+          error,
+          stackTrace,
+          onDiagnosticFailure: _onDiagnosticFailure,
+        );
+        rethrow;
+      }
+      logEvidenceStage(
+        'IMAGE_QUALITY',
+        'SUCCESS',
+        '${quality.width}x${quality.height} quality=${quality.qualityScore} '
+            'requiresRetake=${quality.requiresRetake}',
+      );
       if (quality.requiresRetake) {
+        logEvidenceStage(
+            'IMAGE_QUALITY', 'REJECTED', 'quality threshold not met');
         setState(() {
           _imageBytes = null;
           _quality = quality;
@@ -138,18 +203,56 @@ class _EvidenceCaptureScreenState extends State<EvidenceCaptureScreen> {
         return;
       }
 
-      final location = await widget.locationService.captureLocation();
+      late final LocationResult location;
+      try {
+        location = await widget.locationService.captureLocation(
+          onDiagnosticFailure: _onDiagnosticFailure,
+        );
+      } catch (error, stackTrace) {
+        reportEvidenceFailure(
+          'LOCATION',
+          error,
+          stackTrace,
+          onDiagnosticFailure: _onDiagnosticFailure,
+        );
+        rethrow;
+      }
+      logEvidenceStage(
+        'LOCATION',
+        'SUCCESS',
+        'available=${location.available} reason=${location.reason}',
+      );
       setState(() {
         _imageBytes = bytes;
         _quality = quality;
         _location = location;
         _capturedAt = DateTime.now().toUtc();
-        _errorMessage = null;
+        _errorMessage = _diagnosticFailureMessage;
       });
+      logEvidenceStage('ACCEPT_IMAGE', 'SUCCESS', 'bytes=${bytes.length}');
     } on ImageQualityException catch (error) {
-      setState(() => _errorMessage = error.message);
-    } catch (_) {
-      setState(() => _errorMessage = 'The image could not be read.');
+      if (_diagnosticFailureMessage == null) {
+        reportEvidenceFailure(
+          'IMAGE_QUALITY',
+          error,
+          StackTrace.current,
+          onDiagnosticFailure: _onDiagnosticFailure,
+        );
+      }
+      if (mounted) {
+        setState(
+            () => _errorMessage = _diagnosticFailureMessage ?? error.message);
+      }
+    } catch (error, stackTrace) {
+      reportEvidenceFailure(
+        'ACCEPT_IMAGE',
+        error,
+        stackTrace,
+        onDiagnosticFailure: _onDiagnosticFailure,
+      );
+      if (mounted) {
+        setState(() => _errorMessage = _diagnosticFailureMessage);
+      }
     }
   }
 
@@ -164,36 +267,87 @@ class _EvidenceCaptureScreenState extends State<EvidenceCaptureScreen> {
     setState(() {
       _isSaving = true;
       _errorMessage = null;
+      _diagnosticFailureMessage = null;
     });
     try {
       final location = _location;
-      final record = await _evidenceService.createEvidenceRecord(
-        session: widget.session,
-        imageBytes: bytes,
-        capturedAt: capturedAt,
-        latitude: location?.latitude,
-        longitude: location?.longitude,
-        gpsAccuracy: location?.accuracy,
-        imageQualityScore: quality.qualityScore,
-        sharpnessScore: quality.sharpnessScore,
-        brightnessScore: quality.brightnessScore,
+      logEvidenceStage(
+        'EVIDENCE_CREATE',
+        'START',
+        'bytes=${bytes.length} testId=${widget.session.id}',
+      );
+      late final EvidenceRecord record;
+      try {
+        record = await _evidenceService.createEvidenceRecord(
+          session: widget.session,
+          imageBytes: bytes,
+          capturedAt: capturedAt,
+          latitude: location?.latitude,
+          longitude: location?.longitude,
+          gpsAccuracy: location?.accuracy,
+          imageQualityScore: quality.qualityScore,
+          sharpnessScore: quality.sharpnessScore,
+          brightnessScore: quality.brightnessScore,
+        );
+      } catch (error, stackTrace) {
+        reportEvidenceFailure(
+          'EVIDENCE_CREATE',
+          error,
+          stackTrace,
+          onDiagnosticFailure: _onDiagnosticFailure,
+        );
+        rethrow;
+      }
+      logEvidenceStage(
+        'EVIDENCE_OBJECT',
+        'SUCCESS',
+        'id=${record.id} status=${record.evidenceStatus}',
       );
       if (mounted) {
-        await Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (_) => EvidenceSuccessScreen(
-              record: record,
-              session: widget.session,
-              caseItem: widget.caseItem,
+        try {
+          await Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (_) => EvidenceSuccessScreen(
+                record: record,
+                session: widget.session,
+                caseItem: widget.caseItem,
+              ),
             ),
-          ),
+          );
+        } catch (error, stackTrace) {
+          reportEvidenceFailure(
+            'EVIDENCE_NAVIGATION',
+            error,
+            stackTrace,
+            onDiagnosticFailure: _onDiagnosticFailure,
+          );
+          rethrow;
+        }
+      }
+    } on EvidenceServiceException catch (error, stackTrace) {
+      if (_diagnosticFailureMessage == null) {
+        reportEvidenceFailure(
+          'EVIDENCE_SAVE',
+          error,
+          stackTrace,
+          onDiagnosticFailure: _onDiagnosticFailure,
         );
       }
-    } on EvidenceServiceException catch (error) {
-      if (mounted) setState(() => _errorMessage = error.message);
-    } catch (_) {
       if (mounted) {
-        setState(() => _errorMessage = 'Evidence could not be saved.');
+        setState(
+            () => _errorMessage = _diagnosticFailureMessage ?? error.message);
+      }
+    } catch (error, stackTrace) {
+      if (_diagnosticFailureMessage == null) {
+        reportEvidenceFailure(
+          'EVIDENCE_SAVE',
+          error,
+          stackTrace,
+          onDiagnosticFailure: _onDiagnosticFailure,
+        );
+      }
+      if (mounted) {
+        setState(() => _errorMessage = _diagnosticFailureMessage);
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);

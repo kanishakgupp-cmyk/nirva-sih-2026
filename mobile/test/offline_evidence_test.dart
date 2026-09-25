@@ -44,6 +44,40 @@ void main() {
     expect(remote.operationIds.first, remote.operationIds.last);
   });
 
+  test('generates distinct non-empty operation IDs for queued captures', () async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final queue = OfflineEvidenceQueue(preferences: preferences);
+    final remote = FakeRemoteEvidenceService(failuresBeforeSuccess: 2);
+    final service = OfflineFirstEvidenceService(remote: remote, queue: queue);
+    final session = buildSession();
+
+    Future<void> queueCapture() async {
+      await service.createEvidenceRecord(
+        session: session,
+        imageBytes: Uint8List.fromList([1, 2, 3]),
+        capturedAt: DateTime.utc(2026, 9, 23),
+        latitude: null,
+        longitude: null,
+        gpsAccuracy: null,
+        imageQualityScore: 90,
+        sharpnessScore: 80,
+        brightnessScore: 75,
+      );
+    }
+
+    await queueCapture();
+    await queueCapture();
+
+    final operationIds = (await queue.list())
+        .map((item) => item.operationId)
+        .toList();
+    expect(operationIds, hasLength(2));
+    expect(operationIds.every((id) => id.isNotEmpty), isTrue);
+    expect(operationIds.every((id) => id.startsWith('op-')), isTrue);
+    expect(operationIds[0], isNot(operationIds[1]));
+  });
+
   test('does not upload a queued item when its image hash changes', () async {
     SharedPreferences.setMockInitialValues({});
     final preferences = await SharedPreferences.getInstance();
