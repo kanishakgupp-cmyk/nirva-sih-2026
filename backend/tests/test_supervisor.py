@@ -17,6 +17,7 @@ from app.services.supervisor_service import (
     SupervisorReviewStateError,
     SupervisorService,
 )
+from app.services.evidence_integrity_service import EvidenceIntegrityService
 
 
 class FakeSupervisorService:
@@ -334,18 +335,32 @@ def test_supervisor_service_review_state_machine() -> None:
         "review_reason": None,
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "evidence_status": "FINALIZED",
+        "image_sha256": "a" * 64,
+        "latitude": 12.3,
+        "longitude": 45.6,
+        "gps_accuracy": 4.2,
+        "previous_record_hash": None,
     }
+    record["record_hash"] = EvidenceIntegrityService().record_hash(record, None)
     audit_log = []
 
     class MockQuery:
         def __init__(self, table: str):
             self.table = table
+            self.previous_lookup = False
             self.payload = None
 
         def select(self, *_args, **_kwargs):
             return self
 
         def eq(self, key, val):
+            return self
+
+        def lt(self, key, val):
+            self.previous_lookup = True
+            return self
+
+        def limit(self, *_args):
             return self
 
         def order(self, *_args, **_kwargs):
@@ -365,7 +380,7 @@ def test_supervisor_service_review_state_machine() -> None:
 
         def execute(self):
             if self.table == "evidence_records":
-                return SimpleNamespace(data=[record])
+                return SimpleNamespace(data=[] if self.previous_lookup else [record])
             if self.table == "audit_events":
                 return SimpleNamespace(data=audit_log)
             if self.table == "test_sessions":
@@ -522,11 +537,19 @@ def _service_with_record(record: dict) -> SupervisorService:
     class MockQuery:
         def __init__(self, table: str):
             self.table = table
+            self.previous_lookup = False
 
         def select(self, *_args, **_kwargs):
             return self
 
         def eq(self, *_args, **_kwargs):
+            return self
+
+        def lt(self, *_args, **_kwargs):
+            self.previous_lookup = True
+            return self
+
+        def limit(self, *_args, **_kwargs):
             return self
 
         def order(self, *_args, **_kwargs):
@@ -545,7 +568,7 @@ def _service_with_record(record: dict) -> SupervisorService:
 
         def execute(self):
             if self.table == "evidence_records":
-                return SimpleNamespace(data=[record])
+                return SimpleNamespace(data=[] if self.previous_lookup else [record])
             if self.table == "test_sessions":
                 return SimpleNamespace(data={"test_number": "NIRVA-TEST-001", "case_id": "case-1"})
             if self.table == "cases":
@@ -562,15 +585,23 @@ def _service_with_record(record: dict) -> SupervisorService:
 
 
 def _finalized_record(evidence_status: str = "FINALIZED") -> dict:
-    return {
+    record = {
         "id": str(uuid4()),
         "test_id": str(uuid4()),
         "operator_id": str(uuid4()),
         "review_status": "PENDING",
         "review_reason": None,
         "captured_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "evidence_status": evidence_status,
+        "image_sha256": "a" * 64,
+        "latitude": 12.3,
+        "longitude": 45.6,
+        "gps_accuracy": 4.2,
+        "previous_record_hash": None,
     }
+    record["record_hash"] = EvidenceIntegrityService().record_hash(record, None)
+    return record
 
 
 def test_supervisor_service_flag_without_reason_is_rejected() -> None:

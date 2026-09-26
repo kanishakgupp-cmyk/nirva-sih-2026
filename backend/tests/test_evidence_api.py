@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from app.api.v1.evidence import get_evidence_service
 from app.core.auth import get_current_user_id
 from app.main import app
+from app.services.analysis_service import EvidenceStateError
 
 
 class UnusedEvidenceService:
@@ -64,3 +65,124 @@ def test_owned_evidence_response_preserves_capture_fields() -> None:
     assert response.status_code == 200
     assert response.json()["id"] == str(evidence_id)
     assert response.json()["test_id"] == str(test_id)
+
+
+def test_capture_state_error_is_a_conflict() -> None:
+    class StateErrorService:
+        def create_evidence(self, **_kwargs) -> dict:
+            raise EvidenceStateError("Evidence can only be captured from a RUNNING test session, not FINALIZED.")
+
+    previous_auth = app.dependency_overrides.get(get_current_user_id)
+    previous_service = app.dependency_overrides.get(get_evidence_service)
+    app.dependency_overrides[get_current_user_id] = lambda: str(uuid4())
+    app.dependency_overrides[get_evidence_service] = lambda: StateErrorService()
+    try:
+        jpeg_header = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+        response = TestClient(app).post(
+            "/api/v1/evidence",
+            data={
+                "test_id": str(uuid4()),
+                "captured_at": "2026-09-12T10:00:00Z",
+                "image_quality_score": "80",
+                "blur_score": "75",
+                "brightness_score": "78",
+            },
+            files={"image": ("evidence.jpg", jpeg_header, "image/jpeg")},
+        )
+    finally:
+        if previous_auth is None:
+            app.dependency_overrides.pop(get_current_user_id, None)
+        else:
+            app.dependency_overrides[get_current_user_id] = previous_auth
+        if previous_service is None:
+            app.dependency_overrides.pop(get_evidence_service, None)
+        else:
+            app.dependency_overrides[get_evidence_service] = previous_service
+
+    assert response.status_code == 409
+    assert "RUNNING" in response.json()["detail"]
+
+
+def test_evidence_upload_rejects_non_image_bytes() -> None:
+    previous_auth = app.dependency_overrides.get(get_current_user_id)
+    previous_service = app.dependency_overrides.get(get_evidence_service)
+    app.dependency_overrides[get_current_user_id] = lambda: str(uuid4())
+
+    class AcceptingService:
+        def create_evidence(self, **_kwargs) -> dict:
+            return {
+                "id": str(uuid4()),
+                "test_id": str(uuid4()),
+                "operator_id": str(uuid4()),
+                "evidence_status": "CAPTURED",
+                "legal_label": "INDICATIVE ONLY - LABORATORY CONFIRMATION REQUIRED",
+            }
+
+    app.dependency_overrides[get_evidence_service] = lambda: AcceptingService()
+    try:
+        response = TestClient(app).post(
+            "/api/v1/evidence",
+            data={
+                "test_id": str(uuid4()),
+                "captured_at": "2026-09-12T10:00:00Z",
+                "image_quality_score": "80",
+                "blur_score": "75",
+                "brightness_score": "78",
+            },
+            files={"image": ("malware.txt", b"not an actual png or jpeg payload", "image/png")},
+        )
+    finally:
+        if previous_auth is None:
+            app.dependency_overrides.pop(get_current_user_id, None)
+        else:
+            app.dependency_overrides[get_current_user_id] = previous_auth
+        if previous_service is None:
+            app.dependency_overrides.pop(get_evidence_service, None)
+        else:
+            app.dependency_overrides[get_evidence_service] = previous_service
+
+    assert response.status_code == 422
+    assert "JPEG or PNG" in response.json()["detail"]
+
+
+def test_evidence_upload_rejects_oversized_images() -> None:
+    previous_auth = app.dependency_overrides.get(get_current_user_id)
+    previous_service = app.dependency_overrides.get(get_evidence_service)
+    app.dependency_overrides[get_current_user_id] = lambda: str(uuid4())
+
+    class AcceptingService:
+        def create_evidence(self, **_kwargs) -> dict:
+            return {
+                "id": str(uuid4()),
+                "test_id": str(uuid4()),
+                "operator_id": str(uuid4()),
+                "evidence_status": "CAPTURED",
+                "legal_label": "INDICATIVE ONLY - LABORATORY CONFIRMATION REQUIRED",
+            }
+
+    app.dependency_overrides[get_evidence_service] = lambda: AcceptingService()
+    try:
+        oversized = b"\x89PNG\r\n\x1a\n" + b"A" * (11 * 1024 * 1024)
+        response = TestClient(app).post(
+            "/api/v1/evidence",
+            data={
+                "test_id": str(uuid4()),
+                "captured_at": "2026-09-12T10:00:00Z",
+                "image_quality_score": "80",
+                "blur_score": "75",
+                "brightness_score": "78",
+            },
+            files={"image": ("oversized.png", oversized, "image/png")},
+        )
+    finally:
+        if previous_auth is None:
+            app.dependency_overrides.pop(get_current_user_id, None)
+        else:
+            app.dependency_overrides[get_current_user_id] = previous_auth
+        if previous_service is None:
+            app.dependency_overrides.pop(get_evidence_service, None)
+        else:
+            app.dependency_overrides[get_evidence_service] = previous_service
+
+    assert response.status_code == 422
+    assert "too large" in response.json()["detail"].lower()

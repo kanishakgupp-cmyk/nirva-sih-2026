@@ -1,6 +1,7 @@
-import 'dart:typed_data';
-
+import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
+
+import 'evidence_diagnostics.dart';
 
 class ImageQualityResult {
   const ImageQualityResult({
@@ -25,16 +26,44 @@ class ImageQualityService {
 
   final double minimumQualityScore;
 
-  ImageQualityResult analyze(Uint8List bytes) {
+  ImageQualityResult analyze(
+    Uint8List bytes, {
+    EvidenceDiagnosticFailureCallback? onDiagnosticFailure,
+  }) {
+    logEvidenceStage('IMAGE_DECODE', 'START', 'bytes=${bytes.length}');
     img.Image? decoded;
     try {
-      decoded = img.decodeImage(bytes);
-    } catch (_) {
+      if (_hasJpegSignature(bytes)) {
+        decoded = img.JpegDecoder().decode(bytes);
+      } else if (_hasPngSignature(bytes)) {
+        decoded = img.PngDecoder().decode(bytes);
+      } else {
+        throw const FormatException('Unsupported or truncated image header.');
+      }
+    } catch (error, stackTrace) {
+      reportEvidenceFailure(
+        'IMAGE_DECODE',
+        error,
+        stackTrace,
+        onDiagnosticFailure: onDiagnosticFailure,
+      );
       throw const ImageQualityException('The image could not be read.');
     }
     if (decoded == null) {
+      const error = FormatException('Image decoder returned null.');
+      reportEvidenceFailure(
+        'IMAGE_DECODE',
+        error,
+        StackTrace.current,
+        onDiagnosticFailure: onDiagnosticFailure,
+      );
       throw const ImageQualityException('The image could not be read.');
     }
+    logEvidenceStage(
+      'IMAGE_DECODE',
+      'SUCCESS',
+      '${decoded.width}x${decoded.height}',
+    );
 
     var brightnessTotal = 0.0;
     var brightnessSquaredTotal = 0.0;
@@ -58,7 +87,7 @@ class ImageQualityService {
         (brightnessScore * 0.4 + sharpnessScore * 0.4 + dimensionScore * 0.2)
             .clamp(0, 100);
 
-    return ImageQualityResult(
+    final result = ImageQualityResult(
       width: decoded.width,
       height: decoded.height,
       brightnessScore: brightnessScore.toDouble(),
@@ -66,7 +95,30 @@ class ImageQualityService {
       qualityScore: qualityScore.toDouble(),
       requiresRetake: qualityScore < minimumQualityScore,
     );
+    logEvidenceStage(
+      'IMAGE_QUALITY',
+      'SUCCESS',
+      'score=${result.qualityScore} requiresRetake=${result.requiresRetake}',
+    );
+    return result;
   }
+
+  bool _hasJpegSignature(Uint8List bytes) =>
+      bytes.length >= 3 &&
+      bytes[0] == 0xff &&
+      bytes[1] == 0xd8 &&
+      bytes[2] == 0xff;
+
+  bool _hasPngSignature(Uint8List bytes) =>
+      bytes.length >= 8 &&
+      bytes[0] == 0x89 &&
+      bytes[1] == 0x50 &&
+      bytes[2] == 0x4e &&
+      bytes[3] == 0x47 &&
+      bytes[4] == 0x0d &&
+      bytes[5] == 0x0a &&
+      bytes[6] == 0x1a &&
+      bytes[7] == 0x0a;
 }
 
 class ImageQualityException implements Exception {

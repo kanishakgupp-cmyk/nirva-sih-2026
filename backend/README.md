@@ -91,7 +91,7 @@ Server-side review rules:
 - search terms are sanitized before they reach the query builder and are never applied with `ilike` to UUID columns;
 - evidence images are returned as short-lived signed URLs from the private `evidence` bucket; storage paths are never accepted from the client.
 
-If migrations `006`/`007` have not been applied to the Supabase project, these endpoints answer `503` naming the migration to apply instead of failing with a generic server error.
+Apply migrations `006`, `007`, and `008` to the Supabase project before using the supervisor and complete evidence workflows. Migration `008` enforces `CREATED -> RUNNING -> CAPTURED -> ANALYZED -> FINALIZED` transitions (with safe invalidation paths) and records session creation/status changes in the audit trail. If the supervisor migrations have not been applied, these endpoints answer `503` naming the migration to apply instead of failing with a generic server error.
 
 ## Evidence integrity and indicative analysis
 
@@ -107,3 +107,5 @@ Phase 8 adds authenticated endpoints for evidence owned by the JWT subject:
 Validation and analysis are generic visual demonstrations. Results such as `DEMO_CLASS_A` and `DEMO_CLASS_B` are indicative only and require laboratory confirmation. The backend stores deterministic feature metadata, a model version, confidence and uncertainty, and enforces the evidence lifecycle `CAPTURED -> VALIDATING -> ANALYZED -> FINALIZED` (or `INVALID`).
 
 Record hashes use canonical JSON with sorted keys and compact separators, followed by `|` and the previous record hash, then SHA-256. Private signing keys are never stored in Supabase; Flutter Web exposes only a demonstration signature boundary.
+
+Capture, analysis, and finalization also verify the corresponding server-side test-session state. Finalization requires a valid image reference/hash, quality and calibration success, completed indicative analysis, available GPS audit data, and required record metadata. Supervisor review re-verifies the stored hash chain before allowing an approval, flag, or return.

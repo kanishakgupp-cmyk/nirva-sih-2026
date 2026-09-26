@@ -37,16 +37,33 @@ class EvidenceAnalysisService:
         image_quality_score: float,
         blur_score: float,
         brightness_score: float,
+        client_operation_id: str | None = None,
     ) -> dict[str, Any]:
+        if client_operation_id:
+            existing_response = (
+                self._client.table("evidence_records")
+                .select("*")
+                .eq("operator_id", user_id)
+                .eq("client_operation_id", client_operation_id)
+                .execute()
+            )
+            if existing_response.data:
+                return self._first_row(existing_response.data, "Evidence record was not found.")
+
         session_response = (
             self._client.table("test_sessions")
-            .select("id")
+            .select("id,status")
             .eq("id", test_id)
             .eq("operator_id", user_id)
             .execute()
         )
         if not session_response.data:
             raise EvidenceNotFoundError
+        session = session_response.data[0]
+        if session.get("status") != "RUNNING":
+            raise EvidenceStateError(
+                f"Evidence can only be captured from a RUNNING test session, not {session.get('status')}."
+            )
         image_hash = hashlib.sha256(image_bytes).hexdigest()
         path = f"{user_id}/{test_id}/{uuid4()}.jpg"
         self._client.storage.from_("evidence").upload(
@@ -59,6 +76,7 @@ class EvidenceAnalysisService:
             .insert({
                 "test_id": test_id,
                 "operator_id": user_id,
+                "client_operation_id": client_operation_id,
                 "captured_at": captured_at.astimezone(timezone.utc).isoformat(),
                 "latitude": latitude,
                 "longitude": longitude,
@@ -75,6 +93,19 @@ class EvidenceAnalysisService:
             .execute()
         )
         created = self._first_row(response.data, "Evidence record was not created.")
+        session_update = (
+            self._client.table("test_sessions")
+            .update({"status": "CAPTURED"})
+            .eq("id", test_id)
+            .eq("operator_id", user_id)
+            .eq("status", "RUNNING")
+            .select("id,status")
+            .execute()
+        )
+        if not session_update.data:
+            raise EvidenceStateError(
+                "The test session changed before evidence capture completed. Please retry."
+            )
         self._audit(test_id, user_id, "IMAGE_CAPTURED", {
             "image_sha256": image_hash,
             "gps_available": latitude is not None and longitude is not None,
@@ -98,8 +129,8 @@ class EvidenceAnalysisService:
 
     def validate(self, evidence_id: str, user_id: str) -> dict[str, Any]:
         record = self.get_owned(evidence_id, user_id)
-        if record.get("evidence_status") == "FINALIZED":
-            raise EvidenceStateError("Finalized evidence cannot be changed.")
+        if record.get("evidence_status") not in {"CAPTURED", "INVALID"}:
+            raise EvidenceStateError("Only captured or invalid evidence can be validated.")
 
         quality = float(record.get("image_quality_score") or 0)
         has_image = bool(record.get("image_path")) and bool(record.get("image_sha256"))
@@ -126,12 +157,15 @@ class EvidenceAnalysisService:
 
     def analyze(self, evidence_id: str, user_id: str) -> dict[str, Any]:
         record = self.get_owned(evidence_id, user_id)
-        if record.get("evidence_status") == "FINALIZED":
-            raise EvidenceStateError("Finalized evidence cannot be changed.")
         if record.get("evidence_status") != "VALIDATING":
             record = self.validate(evidence_id, user_id)
         if record.get("evidence_status") == "INVALID":
             raise EvidenceStateError("Evidence validation failed; retake the image.")
+        session = self._session(record["test_id"], user_id)
+        if session.get("status") != "CAPTURED":
+            raise EvidenceStateError(
+                f"Evidence can only be analyzed from a CAPTURED test session, not {session.get('status')}."
+            )
 
         digest = record.get("image_sha256") or ""
         class_name = "DEMO_CLASS_A" if int(digest[:2] or "0", 16) % 2 == 0 else "DEMO_CLASS_B"
@@ -181,12 +215,19 @@ class EvidenceAnalysisService:
             return record
         if record.get("evidence_status") != "ANALYZED":
             raise EvidenceStateError("Evidence must be analyzed before finalization.")
+        session = self._session(record["test_id"], user_id)
+        if session.get("status") != "ANALYZED":
+            raise EvidenceStateError(
+                f"Evidence can only be finalized from an ANALYZED test session, not {session.get('status')}."
+            )
         required = {
             "image": record.get("image_path") and record.get("image_sha256"),
             "quality": float(record.get("image_quality_score") or 0) >= 70,
             "location": self._location_check_completed(record["test_id"], user_id),
             "reference": record.get("calibration_status") == "PASS",
             "analysis": record.get("analysis_completed_at"),
+            "metadata": record.get("captured_at") and record.get("operator_id") and record.get("test_id"),
+            "legal_label": record.get("legal_label"),
         }
         missing = [name for name, present in required.items() if not present]
         if missing:
@@ -209,14 +250,22 @@ class EvidenceAnalysisService:
     def integrity(self, evidence_id: str, user_id: str) -> dict[str, Any]:
         record = self.get_owned(evidence_id, user_id)
         previous = self._previous_hash(record, user_id)
-        valid = self._integrity.verify_record(record, previous)
+        image_bytes = None
+        if record.get("image_path"):
+            image_bytes = self._read_image_bytes(record["image_path"], user_id)
+        verification = self._integrity.verification_report(record, previous, image_bytes)
         return {
             "evidence_id": record["id"],
-            "chain_valid": valid,
-            "status": "CHAIN VALID" if valid else "CHAIN INTEGRITY FAILURE",
+            "chain_valid": verification["chain_verified"],
+            "status": verification["status"],
             "previous_record_hash": previous,
             "record_hash": record.get("record_hash"),
-            "reason": None if valid else "The stored record hash does not match canonical evidence data.",
+            "reason": None if verification["chain_verified"] else "One or more integrity checks failed.",
+            "image_hash_verified": verification["image_hash_verified"],
+            "record_hash_verified": verification["record_hash_verified"],
+            "previous_record_link_verified": verification["previous_record_link_verified"],
+            "signature_verified": verification["signature_verified"],
+            "signature_status": verification["signature_status"],
         }
 
     def audit(self, evidence_id: str, user_id: str) -> list[dict[str, Any]]:
@@ -244,6 +293,17 @@ class EvidenceAnalysisService:
         )
         return response.data[0].get("record_hash") if response.data else None
 
+    def _read_image_bytes(self, image_path: str, user_id: str) -> bytes | None:
+        try:
+            response = self._client.storage.from_("evidence").download(image_path)
+            if hasattr(response, "read"):
+                return response.read()
+            if isinstance(response, (bytes, bytearray)):
+                return bytes(response)
+        except Exception:
+            return None
+        return None
+
     def _update(self, evidence_id: str, user_id: str, values: dict[str, Any]) -> dict[str, Any]:
         response = (
             self._client.table("evidence_records")
@@ -264,6 +324,16 @@ class EvidenceAnalysisService:
         raise EvidenceStateError(error_message)
 
     def _audit(self, test_id: str, user_id: str, event_type: str, event_data: dict[str, Any]) -> None:
+        existing = (
+            self._client.table("audit_events")
+            .select("event_data")
+            .eq("test_id", test_id)
+            .eq("operator_id", user_id)
+            .eq("event_type", event_type)
+            .execute()
+        )
+        if any(row.get("event_data") == event_data for row in (existing.data or [])):
+            return
         self._client.table("audit_events").insert({
             "test_id": test_id,
             "operator_id": user_id,
@@ -274,11 +344,23 @@ class EvidenceAnalysisService:
     def _location_check_completed(self, test_id: str, user_id: str) -> bool:
         response = (
             self._client.table("audit_events")
-            .select("id")
+            .select("event_data")
             .eq("test_id", test_id)
             .eq("operator_id", user_id)
             .eq("event_type", "GPS_CAPTURED")
             .limit(1)
             .execute()
         )
-        return bool(response.data)
+        return any((row.get("event_data") or {}).get("available") is True for row in (response.data or []))
+
+    def _session(self, test_id: str, user_id: str) -> dict[str, Any]:
+        response = (
+            self._client.table("test_sessions")
+            .select("id,status")
+            .eq("id", test_id)
+            .eq("operator_id", user_id)
+            .execute()
+        )
+        if not response.data:
+            raise EvidenceNotFoundError
+        return dict(response.data[0])

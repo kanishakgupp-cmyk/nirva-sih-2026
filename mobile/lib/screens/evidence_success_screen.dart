@@ -19,6 +19,7 @@ class EvidenceSuccessScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLocalPending = record.evidenceStatus == 'LOCAL_PENDING_UPLOAD';
     final capturedAt = record.capturedAt?.toLocal().toString() ?? 'Unavailable';
     final hash = record.imageSha256 ?? '';
     final shortHash = hash.length > 16
@@ -52,23 +53,42 @@ class EvidenceSuccessScreen extends StatelessWidget {
                     'GPS: ${record.latitude == null ? 'Unavailable' : 'Available'}'),
                 Text('SHA-256: $shortHash'),
                 const SizedBox(height: 24),
-                const Text(
-                  'Evidence capture complete.',
+                Text(
+                  isLocalPending
+                      ? 'Saved securely on this device. Waiting for connection before server upload.'
+                      : 'Evidence capture complete.',
                   textAlign: TextAlign.center,
                 ),
+                if (isLocalPending) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'LOCAL CAPTURE • SERVER CONFIRMATION REQUIRED',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 const SizedBox(height: 24),
                 FilledButton(
-                  onPressed: () => Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(
-                      builder: (_) => AnalysisScreen(
-                        record: record,
-                        session: session,
-                        caseItem: caseItem,
+                  onPressed: isLocalPending
+                      ? null
+                      : () => Navigator.of(context).pushReplacement(
+                          MaterialPageRoute(
+                            builder: (_) => AnalysisScreen(
+                              record: record,
+                              session: session,
+                              caseItem: caseItem,
+                            ),
+                          ),
                       ),
-                    ),
+                  child: Text(
+                    isLocalPending
+                        ? 'Waiting for server confirmation'
+                        : 'Review and Analyze Evidence',
                   ),
-                  child: const Text('Review and Analyze Evidence'),
                 ),
               ],
             ),

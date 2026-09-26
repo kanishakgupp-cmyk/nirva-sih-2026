@@ -4,7 +4,6 @@ import '../models/case_model.dart';
 import '../models/kit.dart';
 import '../models/test_session.dart';
 import '../models/workflow_step.dart';
-import '../services/test_session_service.dart';
 import '../services/workflow_service.dart';
 import '../widgets/workflow_timer.dart';
 import 'evidence_capture_screen.dart';
@@ -14,7 +13,6 @@ class GuidedWorkflowScreen extends StatefulWidget {
     required this.session,
     required this.caseItem,
     required this.kit,
-    this.testSessionService,
     this.workflowService = const WorkflowService(),
     super.key,
   });
@@ -22,7 +20,6 @@ class GuidedWorkflowScreen extends StatefulWidget {
   final TestSession session;
   final CaseModel caseItem;
   final Kit kit;
-  final TestSessionService? testSessionService;
   final WorkflowService workflowService;
 
   @override
@@ -31,7 +28,6 @@ class GuidedWorkflowScreen extends StatefulWidget {
 
 class _GuidedWorkflowScreenState extends State<GuidedWorkflowScreen> {
   late final List<WorkflowStep> _steps;
-  late final TestSessionService _testSessionService;
   late WorkflowState _workflowState;
   String? _errorMessage;
   bool _isCompleting = false;
@@ -40,8 +36,6 @@ class _GuidedWorkflowScreenState extends State<GuidedWorkflowScreen> {
   void initState() {
     super.initState();
     _steps = widget.workflowService.getDemoWorkflow();
-    _testSessionService =
-        widget.testSessionService ?? SupabaseTestSessionService();
     _workflowState = WorkflowState(
       currentStepIndex: 0,
       completedSteps: <String>{},
@@ -112,33 +106,14 @@ class _GuidedWorkflowScreenState extends State<GuidedWorkflowScreen> {
       _isCompleting = true;
       _errorMessage = null;
     });
-    try {
-      await _testSessionService.markWorkflowComplete(
-        testId: widget.session.id,
-      );
-      if (mounted) {
-        setState(() {
-          _workflowState = _workflowState.copyWith(
-            completedSteps: completed,
-            completedAt: DateTime.now(),
-          );
-        });
-      }
-    } on TestSessionServiceException catch (error) {
-      if (mounted) {
-        setState(() => _errorMessage = error.message);
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _errorMessage =
-              'The workflow could not be completed. Please try again.';
-        });
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isCompleting = false);
-      }
+    if (mounted) {
+      setState(() {
+        _workflowState = _workflowState.copyWith(
+          completedSteps: completed,
+          completedAt: DateTime.now(),
+        );
+        _isCompleting = false;
+      });
     }
   }
 

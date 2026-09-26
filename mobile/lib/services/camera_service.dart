@@ -1,6 +1,8 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 
+import 'evidence_diagnostics.dart';
+
 class CameraService {
   CameraController? _controller;
 
@@ -87,13 +89,64 @@ class CameraService {
         'secure-context-compatible: $secureContext]';
   }
 
-  Future<Uint8List> captureBytes() async {
+  Future<Uint8List> captureBytes({
+    EvidenceDiagnosticFailureCallback? onDiagnosticFailure,
+  }) async {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
       throw const CameraServiceException('Camera is not ready.');
     }
-    final file = await controller.takePicture();
-    return file.readAsBytes();
+    late final XFile file;
+    logEvidenceStage('CAPTURE_TAKE_PICTURE', 'START',
+        'function=CameraService.captureBytes');
+    try {
+      file = await controller.takePicture();
+      logEvidenceStage(
+        'CAPTURE_TAKE_PICTURE',
+        'SUCCESS',
+        'function=CameraService.captureBytes XFile.path=${file.path} '
+            'XFile.name=${file.name} MIME=${file.mimeType}',
+      );
+    } catch (error, stackTrace) {
+      reportEvidenceFailure(
+        'CAPTURE_TAKE_PICTURE',
+        error,
+        stackTrace,
+        functionName: 'CameraService.captureBytes -> CameraController.takePicture',
+        onDiagnosticFailure: onDiagnosticFailure,
+      );
+      rethrow;
+    }
+
+    logEvidenceStage(
+      'CAPTURE_READ_BYTES',
+      'START',
+      'function=CameraService.captureBytes XFile.path=${file.path} '
+          'XFile.name=${file.name} MIME=${file.mimeType}',
+    );
+    try {
+      final bytes = await file.readAsBytes();
+      logEvidenceStage(
+        'CAPTURE_READ_BYTES',
+        'SUCCESS',
+        'function=XFile.readAsBytes XFile.path=${file.path} '
+            'XFile.name=${file.name} MIME=${file.mimeType}\n'
+            '${describeEvidenceBytes(bytes)}',
+      );
+      return bytes;
+    } catch (error, stackTrace) {
+      reportEvidenceFailure(
+        'CAPTURE_READ_BYTES',
+        error,
+        stackTrace,
+        functionName: 'CameraService.captureBytes -> XFile.readAsBytes',
+        xFilePath: file.path,
+        xFileName: file.name,
+        mimeType: file.mimeType,
+        onDiagnosticFailure: onDiagnosticFailure,
+      );
+      rethrow;
+    }
   }
 
   Future<void> dispose() async {

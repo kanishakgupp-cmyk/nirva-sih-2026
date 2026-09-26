@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/supervisor_models.dart';
 import '../services/auth_service.dart';
 import '../services/supervisor_service.dart';
+import '../widgets/status_badge.dart';
 import 'supervisor_evidence_screen.dart';
 
 class SupervisorDashboardScreen extends StatefulWidget {
@@ -76,7 +77,10 @@ class _SupervisorDashboardScreenState extends State<SupervisorDashboardScreen> {
               future: _overview,
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
-                  return const _ErrorState(message: 'Dashboard metrics could not be loaded.');
+                  return _ErrorState(
+                    message: 'Dashboard metrics could not be loaded.',
+                    onRetry: () => setState(_reload),
+                  );
                 }
                 if (!snapshot.hasData) return const LinearProgressIndicator();
                 final data = snapshot.data!;
@@ -100,7 +104,15 @@ class _SupervisorDashboardScreenState extends State<SupervisorDashboardScreen> {
               },
             ),
             const SizedBox(height: 24),
-            Text('Evidence Review Queue', style: Theme.of(context).textTheme.headlineSmall),
+            Row(
+              children: [
+                Expanded(
+                  child: Text('Evidence Review Queue',
+                      style: Theme.of(context).textTheme.headlineSmall),
+                ),
+                NirvaStatusBadge(status: _filter == 'ALL' ? 'PENDING' : _filter),
+              ],
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: _searchController,
@@ -147,7 +159,10 @@ class _SupervisorDashboardScreenState extends State<SupervisorDashboardScreen> {
               future: _evidence,
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
-                  return const _ErrorState(message: 'Evidence queue could not be loaded.');
+                  return _ErrorState(
+                    message: 'Evidence queue could not be loaded.',
+                    onRetry: () => setState(_reload),
+                  );
                 }
                 if (!snapshot.hasData) {
                   return const Padding(
@@ -165,13 +180,10 @@ class _SupervisorDashboardScreenState extends State<SupervisorDashboardScreen> {
                 return Column(
                   children: [
                     ...items.map((item) {
-                      final statusColor = _statusColor(context, item.reviewStatus);
                       return Card(
                       child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: statusColor.withValues(alpha: 0.15),
-                          child: Icon(_statusIcon(item.reviewStatus), color: statusColor, size: 20),
-                        ),
+                        leading: Icon(Icons.fingerprint,
+                            color: Theme.of(context).colorScheme.primary),
                         title: Text(
                           '${item.caseNumber ?? 'Case'}  /  ${item.testNumber ?? item.testId}',
                           style: const TextStyle(fontWeight: FontWeight.w600),
@@ -180,7 +192,7 @@ class _SupervisorDashboardScreenState extends State<SupervisorDashboardScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const SizedBox(height: 2),
-                            Text('${item.operator ?? 'Unknown operator'}  •  ${item.reviewStatus}  •  ${item.analysisResult ?? 'Not analyzed'}'),
+                            Text('${item.operator ?? 'Unknown operator'}  •  ${item.analysisResult ?? 'Not analyzed'}'),
                             if (item.reviewReason != null && item.reviewReason!.isNotEmpty)
                               Padding(
                                 padding: const EdgeInsets.only(top: 2),
@@ -204,10 +216,7 @@ class _SupervisorDashboardScreenState extends State<SupervisorDashboardScreen> {
                               style: const TextStyle(fontWeight: FontWeight.bold),
                             ),
                             const SizedBox(height: 2),
-                            Text(
-                              item.finalized ? 'Finalized' : item.evidenceStatus,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
+                            NirvaStatusBadge(status: item.reviewStatus),
                           ],
                         ),
                         onTap: () async {
@@ -244,33 +253,6 @@ class _SupervisorDashboardScreenState extends State<SupervisorDashboardScreen> {
     );
   }
 
-  Color _statusColor(BuildContext context, String status) {
-    switch (status) {
-      case 'APPROVED':
-        return Colors.green.shade700;
-      case 'FLAGGED':
-        return Colors.orange.shade800;
-      case 'RETURNED':
-        return Colors.deepOrange.shade700;
-      case 'PENDING':
-      default:
-        return Colors.amber.shade800;
-    }
-  }
-
-  IconData _statusIcon(String status) {
-    switch (status) {
-      case 'APPROVED':
-        return Icons.check_circle_outline;
-      case 'FLAGGED':
-        return Icons.flag_outlined;
-      case 'RETURNED':
-        return Icons.assignment_return_outlined;
-      case 'PENDING':
-      default:
-        return Icons.pending_actions;
-    }
-  }
 }
 
 class _Metric extends StatelessWidget {
@@ -320,12 +302,26 @@ class _Metric extends StatelessWidget {
 }
 
 class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.message});
+  const _ErrorState({required this.message, required this.onRetry});
   final String message;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.all(24),
-        child: Text(message, textAlign: TextAlign.center),
+        child: Column(
+          children: [
+            Icon(Icons.cloud_off_outlined,
+                color: Theme.of(context).colorScheme.error, size: 32),
+            const SizedBox(height: 8),
+            Text(message, textAlign: TextAlign.center),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
       );
 }

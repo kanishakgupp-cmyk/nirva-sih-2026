@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/supervisor_models.dart';
 import '../services/supervisor_service.dart';
+import '../widgets/status_badge.dart';
 
 class SupervisorEvidenceScreen extends StatefulWidget {
   const SupervisorEvidenceScreen({
@@ -198,6 +199,8 @@ class _SupervisorEvidenceScreenState extends State<SupervisorEvidenceScreen> {
 
   Widget _detailBody(SupervisorEvidenceDetail item) {
     final statusColor = _statusColor(item.reviewStatus);
+    final integrityVerified = item.integrityStatus.toUpperCase().contains('VALID') ||
+        item.integrityStatus.toUpperCase().contains('VERIFIED');
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -223,17 +226,7 @@ class _SupervisorEvidenceScreenState extends State<SupervisorEvidenceScreen> {
                                       ),
                                 ),
                               ),
-                              Chip(
-                                label: Text(
-                                  item.reviewStatus,
-                                  style: TextStyle(
-                                    color: statusColor,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                side: BorderSide(color: statusColor),
-                                backgroundColor: statusColor.withValues(alpha: 0.08),
-                              ),
+                              NirvaStatusBadge(status: item.reviewStatus),
                             ],
                           ),
                           const SizedBox(height: 8),
@@ -341,9 +334,38 @@ class _SupervisorEvidenceScreenState extends State<SupervisorEvidenceScreen> {
                       _DetailRow('Evidence ID', item.id),
                       _DetailRow('Test Session ID', item.testId),
                       _DetailRow('Integrity Status', item.integrityStatus),
+                      _DetailRow('Previous Record Hash', item.previousRecordHash ?? 'Not linked'),
+                      _DetailRow('Current Record Hash', item.recordHash ?? 'Not finalized'),
                       _DetailRow('Finalization', item.finalized ? 'FINALIZED (Tamper-proof)' : 'ACTIVE'),
                       _DetailRow('Evidence Status', item.evidenceStatus),
                     ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  Card(
+                    color: integrityVerified
+                        ? Colors.green.shade50
+                        : Theme.of(context).colorScheme.errorContainer,
+                    child: ListTile(
+                      leading: Icon(
+                        integrityVerified
+                            ? Icons.verified_outlined
+                            : Icons.warning_amber_outlined,
+                        color: integrityVerified
+                            ? Colors.green.shade700
+                            : Theme.of(context).colorScheme.error,
+                      ),
+                      title: Text(
+                        integrityVerified
+                            ? 'INTEGRITY VERIFIED'
+                            : 'INTEGRITY VERIFICATION FAILED',
+                      ),
+                      subtitle: Text(
+                        integrityVerified
+                            ? 'Hash chain, prior linkage, and canonical record data match.'
+                            : 'The stored evidence hash data does not match the current canonical record state.',
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 12),
 

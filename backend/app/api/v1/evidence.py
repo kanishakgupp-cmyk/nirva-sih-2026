@@ -8,7 +8,39 @@ from app.db.client import get_configured_supabase_client
 from app.schemas.analysis import AnalysisResponse, AuditEventResponse, FinalizeResponse, IntegrityResponse
 from app.services.analysis_service import EvidenceAnalysisService, EvidenceNotFoundError, EvidenceStateError
 
+MAX_EVIDENCE_UPLOAD_BYTES = 10 * 1024 * 1024
+_ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png"}
+
 router = APIRouter(prefix="/evidence", tags=["evidence"])
+
+
+def _validate_uploaded_image(image: UploadFile, image_bytes: bytes) -> None:
+    if image.content_type not in _ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=422, detail="Evidence image must be JPEG or PNG.")
+    if not image_bytes:
+        raise HTTPException(status_code=422, detail="Evidence image is empty.")
+    if len(image_bytes) > MAX_EVIDENCE_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=422,
+            detail="Evidence image is too large. Maximum size is 10 MB.",
+        )
+
+    signature_ok = (
+        image_bytes.startswith(b"\x89PNG\r\n\x1a\n")
+        or image_bytes.startswith(b"\xff\xd8\xff")
+    )
+    if not signature_ok:
+        raise HTTPException(
+            status_code=422,
+            detail="Uploaded file is not a valid JPEG or PNG image.",
+        )
+
+    filename = (image.filename or "").lower()
+    if filename and not (filename.endswith(".jpg") or filename.endswith(".jpeg") or filename.endswith(".png")):
+        raise HTTPException(
+            status_code=422,
+            detail="Evidence image filename must end with .jpg, .jpeg, or .png.",
+        )
 
 
 def get_evidence_service() -> EvidenceAnalysisService:
@@ -34,6 +66,7 @@ def get_evidence(
 @router.post("", response_model=AnalysisResponse, status_code=201)
 async def create_evidence(
     test_id: UUID = Form(...),
+    client_operation_id: str | None = Form(default=None, max_length=100),
     captured_at: datetime = Form(...),
     image_quality_score: float = Form(..., ge=0, le=100),
     blur_score: float = Form(..., ge=0, le=100),
@@ -45,15 +78,13 @@ async def create_evidence(
     user_id: str = Depends(get_current_user_id),
     service: EvidenceAnalysisService = Depends(get_evidence_service),
 ) -> dict:
-    if image.content_type not in {"image/jpeg", "image/png"}:
-        raise HTTPException(status_code=422, detail="Evidence image must be JPEG or PNG.")
     image_bytes = await image.read()
-    if not image_bytes:
-        raise HTTPException(status_code=422, detail="Evidence image is empty.")
+    _validate_uploaded_image(image, image_bytes)
     try:
         return service.create_evidence(
             user_id=user_id,
             test_id=str(test_id),
+            client_operation_id=client_operation_id,
             image_bytes=image_bytes,
             captured_at=captured_at,
             latitude=latitude,
@@ -65,6 +96,8 @@ async def create_evidence(
         )
     except EvidenceNotFoundError:
         raise HTTPException(status_code=404, detail="Test session not found.")
+    except EvidenceStateError as error:
+        raise HTTPException(status_code=409, detail=str(error))
 
 
 @router.post("/{evidence_id}/validate", response_model=AnalysisResponse)

@@ -56,7 +56,13 @@ class _CaseListScreenState extends State<CaseListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Cases'),
+        title: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Cases'),
+            Text('Field investigations', style: TextStyle(fontSize: 12)),
+          ],
+        ),
       ),
       body: FutureBuilder<List<CaseModel>>(
         future: _casesFuture,
@@ -79,11 +85,14 @@ class _CaseListScreenState extends State<CaseListScreen> {
           return RefreshIndicator(
             onRefresh: _refreshCases,
             child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-              itemCount: cases.length,
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 96),
+              itemCount: cases.length + 1,
               separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (context, index) {
-                final caseItem = cases[index];
+                if (index == 0) {
+                  return _CasesHeader(count: cases.length);
+                }
+                final caseItem = cases[index - 1];
                 return _CaseCard(
                   caseItem: caseItem,
                   onTap: () => _openCase(caseItem),
@@ -113,6 +122,26 @@ class _CaseListScreenState extends State<CaseListScreen> {
       return message;
     }
     return '$message\n$diagnostic';
+  }
+}
+
+class _CasesHeader extends StatelessWidget {
+  const _CasesHeader({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Expanded(
+          child: Text('Your cases', style: theme.textTheme.headlineSmall),
+        ),
+        Text('$count ${count == 1 ? 'case' : 'cases'}',
+            style: theme.textTheme.bodyMedium),
+      ],
+    );
   }
 }
 

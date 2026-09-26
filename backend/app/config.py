@@ -25,7 +25,7 @@ class Settings(BaseSettings):
         "http://localhost:8000,http://127.0.0.1:8000"
     )
     cors_origin_regex: str = (
-        r"^https://[a-z0-9-]+-8080\.(app\.github\.dev|githubpreview\.dev)$"
+        r"^https://[a-z0-9-]+-8081\.(app\.github\.dev|githubpreview\.dev)$"
     )
 
     @property

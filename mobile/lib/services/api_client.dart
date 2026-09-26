@@ -4,23 +4,28 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'evidence_diagnostics.dart';
+
 class ApiClient {
   ApiClient({
     String? baseUrl,
     SupabaseClient? supabaseClient,
     http.Client? httpClient,
     @visibleForTesting String? accessToken,
+    EvidenceDiagnosticFailureCallback? onDiagnosticFailure,
   })  : _baseUrl = (baseUrl ?? const String.fromEnvironment('API_BASE_URL'))
             .trim()
             .replaceAll(RegExp(r'/+$'), ''),
         _supabaseClient = supabaseClient,
         _httpClient = httpClient ?? http.Client(),
-        _accessToken = accessToken;
+        _accessToken = accessToken,
+        _onDiagnosticFailure = onDiagnosticFailure;
 
   final String _baseUrl;
   final SupabaseClient? _supabaseClient;
   final http.Client _httpClient;
   final String? _accessToken;
+  final EvidenceDiagnosticFailureCallback? _onDiagnosticFailure;
 
   /// Resolved on demand: constructing an [ApiClient] must never require the
   /// Supabase instance to be initialized (widget construction happens before
@@ -39,8 +44,7 @@ class ApiClient {
 
   bool get hasAccessToken {
     try {
-      final token =
-          _accessToken ?? _supabase.auth.currentSession?.accessToken;
+      final token = _accessToken ?? _supabase.auth.currentSession?.accessToken;
       return token != null && token.isNotEmpty;
     } on Object {
       return false;
@@ -99,33 +103,75 @@ class ApiClient {
     required String filename,
     required String contentType,
   }) async {
-    final uri = buildUri(path);
+    logEvidenceStage('MULTIPART_BUILD', 'START', 'bytes=${bytes.length}');
+    late final Uri uri;
+    try {
+      uri = buildUri(path);
+    } catch (error, stackTrace) {
+      reportEvidenceFailure(
+        'MULTIPART_BUILD',
+        error,
+        stackTrace,
+        onDiagnosticFailure: _onDiagnosticFailure,
+      );
+      rethrow;
+    }
     final response = await _send(
       method: 'POST',
       uri: uri,
       request: () async {
-        final mediaParts = contentType.split('/');
-        final request = http.MultipartRequest('POST', uri)
-          ..headers.addAll(_headers)
-          ..fields.addAll(fields)
-          ..files.add(
-            http.MultipartFile.fromBytes(
-              'image',
-              bytes,
-              filename: filename,
-              contentType: http.MediaType(
-                mediaParts.first,
-                mediaParts.length > 1 ? mediaParts[1] : 'octet-stream',
+        var httpPostStarted = false;
+        try {
+          final mediaParts = contentType.split('/');
+          final request = http.MultipartRequest('POST', uri)
+            ..headers.addAll(_headers)
+            ..fields.addAll(fields)
+            ..files.add(
+              http.MultipartFile.fromBytes(
+                'image',
+                bytes,
+                filename: filename,
+                contentType: http.MediaType(
+                  mediaParts.first,
+                  mediaParts.length > 1 ? mediaParts[1] : 'octet-stream',
+                ),
               ),
-            ),
+            );
+          logEvidenceStage('MULTIPART_BUILD', 'SUCCESS');
+          httpPostStarted = true;
+          logEvidenceStage('HTTP_POST', 'START', _safeUri(uri));
+          final streamedResponse = await request.send();
+          logEvidenceStage(
+            'HTTP_POST',
+            'SUCCESS',
+            'status=${streamedResponse.statusCode}',
           );
-        return http.Response.fromStream(await request.send());
+          return await http.Response.fromStream(streamedResponse);
+        } catch (error, stackTrace) {
+          reportEvidenceFailure(
+            httpPostStarted ? 'HTTP_POST' : 'MULTIPART_BUILD',
+            error,
+            stackTrace,
+            onDiagnosticFailure: _onDiagnosticFailure,
+          );
+          rethrow;
+        }
       },
     );
     try {
-      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
-    } on Object catch (error) {
-      _log('POST ${_safeUri(uri)} invalid JSON response: ${error.runtimeType}');
+      logEvidenceStage(
+          'RESPONSE_PARSE', 'START', 'HTTP ${response.statusCode}');
+      final parsed =
+          Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+      logEvidenceStage('RESPONSE_PARSE', 'SUCCESS');
+      return parsed;
+    } on Object catch (error, stackTrace) {
+      reportEvidenceFailure(
+        'RESPONSE_PARSE',
+        error,
+        stackTrace,
+        onDiagnosticFailure: _onDiagnosticFailure,
+      );
       throw ApiClientException(
         'The server returned an invalid response (HTTP ${response.statusCode}).',
         statusCode: response.statusCode,
@@ -222,10 +268,22 @@ class ApiClient {
         );
       }
       return response;
-    } on ApiClientException {
+    } on ApiClientException catch (error, stackTrace) {
+      reportEvidenceFailure(
+        'API_REQUEST',
+        error,
+        stackTrace,
+        onDiagnosticFailure: _onDiagnosticFailure,
+      );
       rethrow;
-    } on http.ClientException catch (error) {
+    } on http.ClientException catch (error, stackTrace) {
       _log('$method $safeUri transport failure: ${error.runtimeType}');
+      reportEvidenceFailure(
+        'HTTP_TRANSPORT',
+        error,
+        stackTrace,
+        onDiagnosticFailure: _onDiagnosticFailure,
+      );
       throw ApiClientException(
         'The server could not be reached. Please try again.',
         category: ApiErrorCategory.networkError,
@@ -235,8 +293,14 @@ class ApiClient {
           exception: error,
         ),
       );
-    } catch (error) {
+    } catch (error, stackTrace) {
       _log('$method $safeUri unexpected failure: ${error.runtimeType}');
+      reportEvidenceFailure(
+        'API_REQUEST',
+        error,
+        stackTrace,
+        onDiagnosticFailure: _onDiagnosticFailure,
+      );
       throw ApiClientException(
         'The request could not be completed (${error.runtimeType}).',
         category: ApiErrorCategory.unknownClientError,

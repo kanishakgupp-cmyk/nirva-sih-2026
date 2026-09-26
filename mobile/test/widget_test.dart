@@ -31,6 +31,7 @@ import 'package:nirva/services/camera_service.dart';
 import 'package:nirva/services/case_service.dart';
 import 'package:nirva/services/evidence_service.dart';
 import 'package:nirva/services/evidence_hash_service.dart';
+import 'package:nirva/services/evidence_diagnostics.dart';
 import 'package:nirva/services/image_quality_service.dart';
 import 'package:nirva/services/kit_service.dart';
 import 'package:nirva/services/location_service.dart';
@@ -178,7 +179,9 @@ class UnavailableLocationService extends LocationService {
   const UnavailableLocationService();
 
   @override
-  Future<LocationResult> captureLocation() async {
+  Future<LocationResult> captureLocation({
+    EvidenceDiagnosticFailureCallback? onDiagnosticFailure,
+  }) async {
     return const LocationResult.unavailable(reason: 'Not available in test.');
   }
 }
@@ -195,6 +198,7 @@ class FakeEvidenceService implements EvidenceService {
     required double imageQualityScore,
     required double sharpnessScore,
     required double brightnessScore,
+    String? clientOperationId,
   }) async {
     return EvidenceRecord.fromMap({
       'id': 'evidence-1',
@@ -485,13 +489,24 @@ void main() {
     expect(first, hasLength(64));
   });
 
-  test('image quality rejects unreadable or undersized data', () {
+  test('image quality rejects short non-image bytes before format probing', () {
     const service = ImageQualityService();
+    String? failureStage;
+    Object? failure;
 
     expect(
-      () => service.analyze(Uint8List.fromList([1, 2, 3])),
+      () => service.analyze(
+        Uint8List.fromList([1, 2, 3]),
+        onDiagnosticFailure: (report) {
+          failureStage = report.stage;
+          failure = report.error;
+        },
+      ),
       throwsA(isA<ImageQualityException>()),
     );
+    expect(failureStage, 'IMAGE_DECODE');
+    expect(failure, isA<FormatException>());
+    expect(failure, isNot(isA<RangeError>()));
   });
 
   test('low-quality valid image requests a retake', () {
@@ -617,11 +632,9 @@ void main() {
     expect(find.text('Welcome, Test Officer'), findsOneWidget);
     expect(find.text('OFFICER'), findsOneWidget);
     expect(find.text('Cases'), findsOneWidget);
-    expect(find.text('Start Test - Coming in next phase'), findsOneWidget);
-    expect(
-      find.text('Evidence History - Coming in next phase'),
-      findsOneWidget,
-    );
+    expect(find.text('Open Cases'), findsOneWidget);
+    expect(find.text('Start with a case'), findsOneWidget);
+    expect(find.text('Evidence integrity'), findsOneWidget);
     expect(find.byTooltip('Sign out'), findsOneWidget);
   });
 
@@ -753,7 +766,6 @@ void main() {
           session: FakeTestSessionService._session,
           caseItem: sampleCase,
           kit: kit,
-          testSessionService: FakeTestSessionService(),
         ),
       ),
     );
@@ -802,7 +814,6 @@ void main() {
             status: 'ACTIVE',
             createdAt: DateTime(2026, 9, 11),
           ),
-          testSessionService: FakeTestSessionService(),
           workflowService: const FastWorkflowService(),
         ),
       ),
@@ -895,7 +906,6 @@ void main() {
             status: 'ACTIVE',
             createdAt: DateTime(2026, 9, 11),
           ),
-          testSessionService: FakeTestSessionService(),
           workflowService: const TimedWorkflowService(),
         ),
       ),

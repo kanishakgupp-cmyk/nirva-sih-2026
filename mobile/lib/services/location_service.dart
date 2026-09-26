@@ -1,5 +1,7 @@
 import 'package:geolocator/geolocator.dart';
 
+import 'evidence_diagnostics.dart';
+
 class LocationResult {
   const LocationResult.available({
     required this.latitude,
@@ -27,9 +29,14 @@ class LocationResult {
 class LocationService {
   const LocationService();
 
-  Future<LocationResult> captureLocation() async {
+  Future<LocationResult> captureLocation({
+    EvidenceDiagnosticFailureCallback? onDiagnosticFailure,
+  }) async {
+    logEvidenceStage('LOCATION', 'START');
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
+        logEvidenceStage(
+            'LOCATION', 'SUCCESS', 'available=false services-disabled');
         return const LocationResult.unavailable(
           reason: 'Location services are unavailable.',
         );
@@ -41,19 +48,28 @@ class LocationService {
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
+        logEvidenceStage(
+            'LOCATION', 'SUCCESS', 'available=false permission-denied');
         return const LocationResult.unavailable(
           reason: 'Location permission was not granted.',
         );
       }
 
       final position = await Geolocator.getCurrentPosition();
+      logEvidenceStage('LOCATION', 'SUCCESS', 'available=true');
       return LocationResult.available(
         latitude: position.latitude,
         longitude: position.longitude,
         accuracy: position.accuracy,
         capturedAt: DateTime.now().toUtc(),
       );
-    } catch (_) {
+    } catch (error, stackTrace) {
+      reportEvidenceFailure(
+        'LOCATION',
+        error,
+        stackTrace,
+        onDiagnosticFailure: onDiagnosticFailure,
+      );
       return const LocationResult.unavailable(
         reason: 'Location could not be obtained.',
       );

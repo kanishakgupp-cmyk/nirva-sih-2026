@@ -77,6 +77,60 @@ class EvidenceRecord {
   final String? legalLabel;
   final DateTime createdAt;
 
+  factory EvidenceRecord.localPending({
+    required String operationId,
+    required String testId,
+    required String operatorId,
+    required DateTime capturedAt,
+    required double? latitude,
+    required double? longitude,
+    required double? gpsAccuracy,
+    required String imageSha256,
+    required double imageQualityScore,
+    required double blurScore,
+    required double brightnessScore,
+  }) {
+    return EvidenceRecord(
+      id: 'local:$operationId',
+      testId: testId,
+      operatorId: operatorId,
+      deviceId: null,
+      capturedAt: capturedAt,
+      latitude: latitude,
+      longitude: longitude,
+      gpsAccuracy: gpsAccuracy,
+      imagePath: null,
+      imageSha256: imageSha256,
+      imageQualityScore: imageQualityScore,
+      blurScore: blurScore,
+      brightnessScore: brightnessScore,
+      glareScore: null,
+      referenceCardStatus: null,
+      calibrationStatus: null,
+      calibrationError: null,
+      result: null,
+      confidence: null,
+      modelVersion: null,
+      previousRecordHash: null,
+      recordHash: null,
+      signature: null,
+      evidenceStatus: 'LOCAL_PENDING_UPLOAD',
+      normalizedImagePath: null,
+      analysisStatus: null,
+      analysisResult: null,
+      analysisConfidence: null,
+      analysisUncertainty: null,
+      analysisModelVersion: null,
+      analysisFeatures: null,
+      analysisExplanation: null,
+      analysisCompletedAt: null,
+      signatureAlgorithm: null,
+      keyId: null,
+      legalLabel: 'LOCAL CAPTURE - SERVER CONFIRMATION REQUIRED',
+      createdAt: capturedAt,
+    );
+  }
+
   factory EvidenceRecord.fromMap(Map<String, dynamic> map) {
     return EvidenceRecord(
       id: map['id'] as String? ?? '',

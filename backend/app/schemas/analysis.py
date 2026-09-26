@@ -50,10 +50,15 @@ class AnalysisResponse(BaseModel):
 class IntegrityResponse(BaseModel):
     evidence_id: UUID
     chain_valid: bool
-    status: Literal["CHAIN VALID", "CHAIN INTEGRITY FAILURE"]
+    status: Literal["INTEGRITY VERIFIED", "INTEGRITY VERIFICATION FAILED"]
     previous_record_hash: str | None = None
     record_hash: str | None = None
     reason: str | None = None
+    image_hash_verified: bool | None = None
+    record_hash_verified: bool | None = None
+    previous_record_link_verified: bool | None = None
+    signature_verified: bool | None = None
+    signature_status: str | None = None
 
 
 class AuditEventResponse(BaseModel):
